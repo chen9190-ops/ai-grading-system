@@ -1,26 +1,101 @@
 @import "tailwindcss";
+@import "cropperjs/dist/cropper.css";
 
 :root {
-  --background: #ffffff;
+  --background: #f5f7fa;
   --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #101010;
+    --foreground: #f8fafc;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: "HarmonyOS Sans", "Source Han Sans SC", "Noto Sans CJK SC", Inter,
+    Arial, Helvetica, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "HarmonyOS Sans", "Source Han Sans SC", "Noto Sans CJK SC", Inter,
+    Arial, Helvetica, sans-serif;
+}
+
+.blueprint-grid {
+  background-color: #f5f7fa;
+  background-image:
+    linear-gradient(rgb(11 78 162 / 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(11 78 162 / 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  * {
+    scrollbar-color: #475569 transparent;
+  }
+
+  .katex {
+    color: #e2e8f0;
+  }
+}
+
+.cropper-shell .cropper-view-box {
+  outline: 2px solid #0b4ea2;
+  outline-color: #0b4ea2;
+}
+
+.cropper-shell .cropper-face {
+  background-color: transparent;
+}
+
+.cropper-shell .cropper-line {
+  background-color: #0b4ea2;
+  opacity: 1;
+}
+
+.cropper-shell .cropper-point {
+  background-color: #ffffff;
+  border: 2px solid #0b4ea2;
+  height: 12px;
+  opacity: 1;
+  width: 12px;
+}
+
+.cropper-shell .cropper-point.point-n,
+.cropper-shell .cropper-point.point-s {
+  margin-left: -6px;
+}
+
+.cropper-shell .cropper-point.point-e,
+.cropper-shell .cropper-point.point-w {
+  margin-top: -6px;
+}
+
+.cropper-shell .cropper-point.point-ne,
+.cropper-shell .cropper-point.point-nw,
+.cropper-shell .cropper-point.point-se,
+.cropper-shell .cropper-point.point-sw {
+  height: 14px;
+  width: 14px;
+}
+
+.cropper-shell .cropper-dashed {
+  border-color: rgb(255 255 255 / 0.55);
+}
+
+.cropper-shell .cropper-modal {
+  background-color: rgb(0 0 0 / 0.55);
+  opacity: 1;
 }

@@ -2,6 +2,13 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Create local environment variables in `.env.local`:
+
+```bash
+DIFY_BASE_URL=https://api.dify.ai/v1
+DIFY_API_KEY=your_dify_service_api_key
+```
+
 First, run the development server:
 
 ```bash
