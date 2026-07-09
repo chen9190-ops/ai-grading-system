@@ -80,6 +80,10 @@ export default function Home() {
     useState<WorkflowStep[]>(createWorkflowSteps);
   const [history, setHistory] = useState<GradeHistoryItem[]>([]);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
+  const [studentName, setStudentName] = useState("匿名学生");
+  const [studentId, setStudentId] = useState("");
+  const [courseName, setCourseName] = useState("工程课程");
+  const [className, setClassName] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -360,6 +364,19 @@ export default function Home() {
         resultPreview: createResultPreview(normalizedResult),
         score: extractScore(normalizedResult),
       });
+      const submissionSaved = await saveSubmission({
+        studentName,
+        studentId,
+        courseName,
+        className,
+        problemImageName: questionUpload.fileName,
+        answerImageName: answerUpload.fileName,
+        gradingResult: normalizedResult,
+      });
+
+      if (!submissionSaved) {
+        setStatus("批改完成，但数据库记录保存失败");
+      }
     } catch {
       setStatus("批改失败");
       setResult("AI分析超时或服务繁忙，请重试");
@@ -438,7 +455,9 @@ export default function Home() {
               </div>
             </div>
             <div className="border border-[#D8DEE8] bg-[#F5F7FA] px-4 py-2 text-xs font-medium text-[#163A70]">
-              工程计算 · 课程考核 · AI 辅助评阅
+              <a href="/teacher" className="transition hover:text-[#0B4EA2]">
+                教师工作台 →
+              </a>
             </div>
           </div>
         </header>
@@ -456,6 +475,33 @@ export default function Home() {
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 请分别上传题目图片与学生答案图片，完成区域裁剪后启动智能批改。
               </p>
+              </div>
+
+              <div className="mb-4 grid grid-cols-2 gap-3 border border-[#D8DEE8] bg-[#F8FAFD] p-3">
+                <StudentField
+                  label="学生姓名"
+                  value={studentName}
+                  onChange={setStudentName}
+                  placeholder="匿名学生"
+                />
+                <StudentField
+                  label="学号"
+                  value={studentId}
+                  onChange={setStudentId}
+                  placeholder="选填"
+                />
+                <StudentField
+                  label="课程"
+                  value={courseName}
+                  onChange={setCourseName}
+                  placeholder="工程课程"
+                />
+                <StudentField
+                  label="班级"
+                  value={className}
+                  onChange={setClassName}
+                  placeholder="选填"
+                />
               </div>
 
               <div className="space-y-3">
@@ -891,6 +937,32 @@ function ReportProgress({
         ))}
       </div>
     </div>
+  );
+}
+
+function StudentField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label className="text-xs font-medium text-[#0B2545]">
+      {label}
+      <input
+        type="text"
+        value={value}
+        maxLength={100}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 h-9 w-full border border-[#D8DEE8] bg-white px-2 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-[#0B4EA2]"
+      />
+    </label>
   );
 }
 
@@ -1357,6 +1429,89 @@ function extractScore(value: string) {
   );
 
   return match?.[1]?.trim() || "";
+}
+
+async function saveSubmission(input: {
+  studentName: string;
+  studentId: string;
+  courseName: string;
+  className: string;
+  problemImageName: string;
+  answerImageName: string;
+  gradingResult: string;
+}) {
+  const scoreText = extractScore(input.gradingResult);
+  const score = scoreText ? Number(scoreText.split("/")[0].trim()) : null;
+  const payload = {
+    ...input,
+    studentName: input.studentName.trim() || "匿名学生",
+    courseName: input.courseName.trim() || "工程课程",
+    score: Number.isFinite(score) ? score : null,
+    problemOcr: extractReportField(input.gradingResult, [
+      "题目识别",
+      "题目OCR",
+      "题目内容",
+    ]),
+    answerOcr: extractReportField(input.gradingResult, [
+      "答案识别",
+      "答案OCR",
+      "学生答案",
+    ]),
+    problemDiagram: extractReportField(input.gradingResult, ["题目图形", "题目图示"]),
+    answerDiagram: extractReportField(input.gradingResult, ["答案图形", "答案图示"]),
+    firstError: extractReportField(input.gradingResult, [
+      "首个错误",
+      "第一处错误",
+      "首次错误",
+    ]),
+    errorType: extractReportField(input.gradingResult, ["错误类型", "错误分类"]),
+    knowledgePoint: extractReportField(input.gradingResult, [
+      "知识点",
+      "考查知识点",
+      "涉及知识点",
+    ]),
+  };
+
+  try {
+    const response = await fetch("/api/submissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function extractReportField(report: string, labels: string[]) {
+  for (const label of labels) {
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const inlineMatch = report.match(
+      new RegExp(
+        `(?:^|\\n)\\s*(?:#{1,6}\\s*)?(?:\\*\\*)?${escapedLabel}(?:\\*\\*)?\\s*[:：]\\s*([^\\n]+)`,
+        "i",
+      ),
+    );
+
+    if (inlineMatch?.[1]?.trim()) {
+      return inlineMatch[1].replace(/\*\*/g, "").trim().slice(0, 2000);
+    }
+
+    const sectionMatch = report.match(
+      new RegExp(
+        `(?:^|\\n)\\s*#{1,6}\\s*${escapedLabel}\\s*\\n+([\\s\\S]*?)(?=\\n\\s*#{1,6}\\s|$)`,
+        "i",
+      ),
+    );
+
+    if (sectionMatch?.[1]?.trim()) {
+      return sectionMatch[1].trim().slice(0, 2000);
+    }
+  }
+
+  return null;
 }
 
 function saveHistorySafely(history: GradeHistoryItem[]) {
