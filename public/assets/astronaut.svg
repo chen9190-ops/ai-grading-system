@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simple professional astronaut SVG: white suit, blue transparent helmet,
+  minimal friendly wave animation. Designed for a clean aerospace look —
+  not childish or gamey.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320" width="480" height="640" aria-hidden="true">
+  <defs>
+    <linearGradient id="helmetGrad" x1="0" x2="1">
+      <stop offset="0%" stop-color="#BEE7FF" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#7EC8FF" stop-opacity="0.5" />
+    </linearGradient>
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0B2545" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <!-- body group -->
+  <g transform="translate(20,10)">
+    <!-- backpack / torso -->
+    <rect x="50" y="120" rx="18" ry="18" width="120" height="110" fill="#FFFFFF" stroke="#E6EEF8" stroke-width="2" filter="url(#softShadow)" />
+
+    <!-- left arm (waving) -->
+    <g id="leftArm" transform-origin="86 160">
+      <path d="M60 140 C72 150, 68 170, 86 174" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="90" cy="170" r="10" fill="#FFFFFF" stroke="#E6EEF8" stroke-width="2" />
+    </g>
+
+    <!-- right arm (rest) -->
+    <path d="M190 160 C178 150, 182 170, 164 174" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+    <circle cx="160" cy="170" r="10" fill="#FFFFFF" stroke="#E6EEF8" stroke-width="2" />
+
+    <!-- legs -->
+    <rect x="78" y="220" rx="8" ry="8" width="26" height="30" fill="#F6F8FA" stroke="#E6EEF8" stroke-width="1.5" />
+    <rect x="136" y="220" rx="8" ry="8" width="26" height="30" fill="#F6F8FA" stroke="#E6EEF8" stroke-width="1.5" />
+
+    <!-- helmet frame -->
+    <ellipse cx="120" cy="64" rx="70" ry="56" fill="#FFFFFF" stroke="#DDEBF9" stroke-width="3" />
+    <!-- visor (blue transparent) -->
+    <g>
+      <path d="M52 50 C60 26, 180 26, 188 50 C186 86, 54 86, 52 50 Z" fill="url(#helmetGrad)" stroke="#C6E8FF" stroke-width="1.5" />
+      <path d="M70 56 C92 38, 148 38, 170 56" fill="none" stroke="#99D0FF" stroke-width="1.2" opacity="0.9" />
+    </g>
+
+    <!-- face panel (subtle) -->
+    <rect x="84" y="72" rx="10" ry="10" width="72" height="48" fill="#F8FCFF" opacity="0.6" />
+
+    <!-- subtle insignia (blue) -->
+    <circle cx="78" cy="150" r="8" fill="#0B4EA2" />
+
+    <!-- small visor reflection -->
+    <g opacity="0.85" fill="#FFFFFF">
+      <ellipse cx="154" cy="44" rx="8" ry="4" />
+      <ellipse cx="140" cy="36" rx="3" ry="1.6" />
+    </g>
+  </g>
+
+  <!-- animation: gentle wave for left arm -->
+  <style>
+    <![CDATA[
+      @keyframes wave {
+        0% { transform: rotate(0deg); }
+        20% { transform: rotate(-18deg); }
+        40% { transform: rotate(12deg); }
+        60% { transform: rotate(-8deg); }
+        100% { transform: rotate(0deg); }
+      }
+      #leftArm { transform-origin: 86px 160px; animation: wave 2.2s ease-in-out infinite; }
+    ]]>
+  </style>
+</svg>

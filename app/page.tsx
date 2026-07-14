@@ -2,10 +2,23 @@
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
 import ImageCropper from "./components/ImageCropper";
-import ReactMarkdown from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import remarkMath from "remark-math";
-import "katex/dist/katex.min.css";
+import MobileShell from "./components/mobile/MobileShell";
+import { useRouter } from "next/navigation";
+import {
+  Bell,
+  BookOpen,
+  Bot,
+  Camera,
+  ChevronRight,
+  CircleUserRound,
+  Clock3,
+  FileText,
+  ImageIcon,
+  RotateCcw,
+  Satellite,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -45,8 +58,10 @@ type WorkflowStep = {
   status: WorkflowStepStatus;
 };
 
-const allowedImageTypes = new Set(["image/jpeg", "image/png"]);
+const allowedImageTypes = new Set(["image/jpeg", "image/jpg", "image/png"]);
+const allowedImageNamePattern = /\.(?:jpe?g|png)$/i;
 const historyStorageKey = "ai-grading-history";
+const gradingResultStorageKey = "ai-grading-current-result";
 const maxHistoryItems = 10;
 const incompleteCropHint = "请先完成题目图片和学生答案图片裁剪。";
 const workflowStepDefinitions: Array<Omit<WorkflowStep, "status">> = [
@@ -66,6 +81,7 @@ function createWorkflowSteps(): WorkflowStep[] {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [questionUpload, setQuestionUpload] = useState<UploadValue | null>(null);
   const [answerUpload, setAnswerUpload] = useState<UploadValue | null>(null);
@@ -73,7 +89,7 @@ export default function Home() {
   const [answerDraft, setAnswerDraft] = useState<CropDraft | null>(null);
   const [draggingKind, setDraggingKind] = useState<UploadKind | null>(null);
   const [status, setStatus] = useState("等待上传题目与学生答案");
-  const [result, setResult] = useState("");
+  const [, setResult] = useState("");
   const [isGrading, setIsGrading] = useState(false);
   const [hasWorkflowEvent, setHasWorkflowEvent] = useState(false);
   const [workflowSteps, setWorkflowSteps] =
@@ -181,7 +197,7 @@ export default function Home() {
   }
 
   function handleImageFile(kind: UploadKind, file: File) {
-    if (!allowedImageTypes.has(file.type)) {
+    if (!isAllowedImageFile(file)) {
       setStatus("仅支持 JPG、JPEG、PNG 图片");
       return;
     }
@@ -211,6 +227,12 @@ export default function Home() {
     };
 
     reader.readAsDataURL(file);
+  }
+
+  function isAllowedImageFile(file: File) {
+    return (
+      allowedImageTypes.has(file.type) || allowedImageNamePattern.test(file.name)
+    );
   }
 
   function removeUpload(kind: UploadKind) {
@@ -377,6 +399,32 @@ export default function Home() {
       if (!submissionSaved) {
         setStatus("批改完成，但数据库记录保存失败");
       }
+
+      saveGradingResult({
+        questionImage: questionUpload.previewUrl,
+        questionFileName: questionUpload.fileName,
+        result: normalizedResult,
+        score: extractScore(normalizedResult),
+        questionType: courseName.trim() || "工程课程",
+        difficulty: 3,
+        knowledgePoints: extractKnowledgePoints(normalizedResult),
+        errorLocation: extractReportField(normalizedResult, [
+          "首个错误",
+          "第一处错误",
+          "错误位置",
+        ]) ?? "",
+        errorReason: extractReportField(normalizedResult, [
+          "错误原因",
+          "原因分析",
+          "错误类型",
+        ]) ?? "",
+        improvement: extractReportField(normalizedResult, [
+          "改进建议",
+          "学习建议",
+          "建议",
+        ]) ?? "",
+      });
+      router.push("/grading");
     } catch {
       setStatus("批改失败");
       setResult("AI分析超时或服务繁忙，请重试");
@@ -418,8 +466,22 @@ export default function Home() {
         throw new Error("history unavailable");
       }
 
-      setResult(normalizeReportMarkdown(data.result));
+      const historyResult = normalizeReportMarkdown(data.result);
+      setResult(historyResult);
       setStatus("已加载历史批改详情");
+      saveGradingResult({
+        questionImage: "",
+        questionFileName: item.problemFileName,
+        result: historyResult,
+        score: item.score || extractScore(historyResult),
+        questionType: courseName.trim() || "工程课程",
+        difficulty: 3,
+        knowledgePoints: extractKnowledgePoints(historyResult),
+        errorLocation: extractReportField(historyResult, ["首个错误", "第一处错误", "错误位置"]) ?? "",
+        errorReason: extractReportField(historyResult, ["错误原因", "原因分析", "错误类型"]) ?? "",
+        improvement: extractReportField(historyResult, ["改进建议", "学习建议", "建议"]) ?? "",
+      });
+      router.push("/grading");
     } catch {
       setResult("历史记录详情暂时无法获取，请重新批改。");
       setStatus("历史记录详情暂时无法获取");
@@ -437,344 +499,117 @@ export default function Home() {
   }
 
   return (
-    <main className="blueprint-grid min-h-screen text-slate-950">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <header className="border border-[#D8DEE8] bg-white shadow-sm">
-          <div className="flex flex-col gap-4 border-b-4 border-[#0B4EA2] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-            <div className="flex min-w-0 items-center gap-4">
-              <div className="flex size-14 shrink-0 items-center justify-center border border-[#0B4EA2] bg-[#0B4EA2] text-lg font-semibold text-white">
-                HUST
+    <MobileShell>
+        <header className="relative overflow-hidden px-5 pb-16 pt-5">
+          <div className="relative flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="grid size-12 place-items-center overflow-hidden rounded-full border-2 border-white bg-gradient-to-br from-slate-700 to-slate-950 text-white shadow-md">
+                <CircleUserRound className="size-8" strokeWidth={1.5} />
               </div>
-              <div className="min-w-0">
-                <h1 className="mt-1 text-xl font-semibold tracking-normal text-[#0B2545] sm:text-2xl">
-                  工程课程智能批改平台
-                </h1>
-                <p className="mt-1 font-sans text-xs uppercase tracking-[0.14em] text-slate-500">
-                  Engineering Intelligent Grading Platform
-                </p>
+              <div>
+                <p className="text-lg font-bold tracking-tight">你好，张同学</p>
+                <p className="mt-0.5 text-xs text-slate-500">航空航天学院</p>
               </div>
             </div>
-            <div className="border border-[#D8DEE8] bg-[#F5F7FA] px-4 py-2 text-xs font-medium text-[#163A70]">
-              <a href="/teacher" className="transition hover:text-[#0B4EA2]">
-                教师工作台 →
-              </a>
-            </div>
+            <button type="button" aria-label="通知" className="relative grid size-10 place-items-center rounded-full border border-white/80 bg-white/65 text-slate-700 shadow-sm backdrop-blur-md">
+              <Bell className="size-5" />
+              <span className="absolute right-2.5 top-2 size-2 rounded-full border border-white bg-red-500" />
+            </button>
           </div>
         </header>
 
-        <section className="grid flex-1 gap-4 py-4 lg:grid-cols-[400px_minmax(0,1fr)] lg:overflow-hidden">
-          <aside className="flex flex-col border border-[#D8DEE8] bg-white shadow-sm lg:max-h-[calc(100vh-132px)]">
-            <div className="shrink-0 p-4 sm:p-5">
-              <div className="mb-5 border-b border-[#D8DEE8] pb-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#0B4EA2]">
-                Input Materials
-              </p>
-              <h2 className="mt-2 text-xl font-semibold tracking-normal text-[#0B2545]">
-                上传批改材料
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                请分别上传题目图片与学生答案图片，完成区域裁剪后启动智能批改。
-              </p>
+        <div className="relative -mt-10 space-y-5 px-4">
+          <section className="overflow-hidden rounded-[24px] border border-white/75 bg-white/72 p-5 text-[#17243a] shadow-[0_14px_32px_rgba(71,85,105,.16)] backdrop-blur-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] text-slate-500">07/07 - 07/13</p>
+                <h2 className="mt-1 text-[15px] font-semibold">本周学习概览</h2>
               </div>
-
-              <div className="mb-4 grid grid-cols-2 gap-3 border border-[#D8DEE8] bg-[#F8FAFD] p-3">
-                <StudentField
-                  label="学生姓名"
-                  value={studentName}
-                  onChange={setStudentName}
-                  placeholder="匿名学生"
-                />
-                <StudentField
-                  label="学号"
-                  value={studentId}
-                  onChange={setStudentId}
-                  placeholder="选填"
-                />
-                <StudentField
-                  label="课程"
-                  value={courseName}
-                  onChange={setCourseName}
-                  placeholder="工程课程"
-                />
-                <StudentField
-                  label="班级"
-                  value={className}
-                  onChange={setClassName}
-                  placeholder="选填"
-                />
+              <span className="rounded-full border border-white/80 bg-slate-100/75 px-2.5 py-1 text-[10px] text-slate-600">持续进步中</span>
+            </div>
+            <div className="mt-5 grid grid-cols-[96px_1fr] items-center gap-4">
+              <div className="relative grid size-24 place-items-center rounded-full bg-[conic-gradient(#6688a8_0_82%,rgba(148,163,184,.24)_82%)] p-[7px] shadow-[0_8px_22px_rgba(71,85,105,.14)]">
+                <div className="grid size-full place-items-center rounded-full bg-white/90 text-center shadow-inner">
+                  <div><strong className="text-2xl">82%</strong><p className="text-[9px] text-slate-500">学习状态</p></div>
+                </div>
               </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                {[['8.5h','学习时长'],['32','完成题目'],['85%','正确率']].map(([value,label]) => (
+                  <div key={label} className="border-l border-slate-300/70 first:border-0">
+                    <strong className="text-base">{value}</strong>
+                    <p className="mt-1 text-[9px] text-slate-500">{label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
 
-              <div className="space-y-3">
+          <section className="rounded-[24px] border border-white/55 bg-[#dfe4e8]/72 p-3 shadow-[0_10px_28px_rgba(51,65,85,.11)] backdrop-blur-xl">
+            <label htmlFor="question-upload" className="relative block cursor-pointer overflow-hidden rounded-[20px] border border-white/25 bg-[linear-gradient(135deg,#61778b_0%,#496780_48%,#31536f_100%)] p-5 text-white shadow-[0_10px_24px_rgba(51,65,85,.2)]">
+              <div className="absolute -right-20 -bottom-28 size-56 rounded-full border border-white/15 bg-[radial-gradient(circle_at_32%_28%,rgba(255,255,255,.11)_0_5%,transparent_6%),radial-gradient(circle_at_58%_45%,rgba(15,23,42,.12)_0_8%,transparent_9%),linear-gradient(145deg,rgba(226,232,240,.1),rgba(30,41,59,.08))] shadow-[inset_12px_10px_28px_rgba(255,255,255,.05)]" />
+              <div className="absolute -right-4 top-8 h-28 w-52 -rotate-[18deg] rounded-[50%] border-t border-white/20" />
+              <Satellite className="absolute right-7 top-3 size-7 rotate-12 text-slate-200/45" strokeWidth={1.25} />
+              <span className="absolute right-[104px] top-[29px] size-1 rounded-full bg-white/50 shadow-[0_0_8px_rgba(255,255,255,.55)]" />
+              <div className="relative flex min-h-28 items-center justify-between gap-3">
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-200"><Sparkles className="size-3.5" /> 智能识别 · 即刻解析</div>
+                  <h2 className="text-[22px] font-bold">AI拍照解析</h2>
+                  <p className="mt-1.5 text-xs text-slate-200">上传题目图片，获得专业讲解</p>
+                  <div className="mt-4 flex gap-2 text-[9px] text-slate-100"><span>自动识别</span><span>·</span><span>步骤讲解</span><span>·</span><span>错误分析</span></div>
+                </div>
+                <div className="grid size-16 shrink-0 place-items-center rounded-2xl border border-white/25 bg-slate-100/10 shadow-inner backdrop-blur-sm"><Camera className="size-8 text-slate-50" strokeWidth={1.7} /></div>
+              </div>
+            </label>
+
+            <div className="mt-3 space-y-3">
               {uploadItems.map((item) => {
                 const isDragging = draggingKind === item.kind;
-
                 return (
-                  <div
-                    key={item.id}
-                    className="border border-[#D8DEE8] bg-[#F8FAFD] p-3 transition-colors duration-200"
-                  >
-                    <input
-                      id={item.id}
-                      type="file"
-                      accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                      className="sr-only"
-                      onChange={(event) => handleUpload(item.kind, event)}
-                    />
-
+                  <div key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-[#f8fafc] p-3">
+                    <input id={item.id} type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" className="sr-only" onChange={(event) => handleUpload(item.kind, event)} />
                     {item.draft ? (
                       <div className="space-y-3">
-                        <div>
-                          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                            裁剪{item.title}
-                          </h3>
-                          <p className="mt-1 text-xs leading-5 text-slate-600">
-                            拖动图片调整位置，滚轮缩放后框选需要识别的区域。
-                          </p>
-                        </div>
-                        <ImageCropper
-                          imageSrc={item.draft.previewUrl}
-                          fileName={item.draft.fileName}
-                          inputId={item.id}
-                          onCancel={() => cancelCrop(item.kind)}
-                          onConfirm={(file, previewUrl) =>
-                            confirmCrop(item.kind, file, previewUrl)
-                          }
-                        />
+                        <div><h3 className="text-sm font-semibold">裁剪{item.title}</h3><p className="mt-1 text-xs leading-5 text-slate-500">移动和缩放图片，框选需要识别的区域</p></div>
+                        <ImageCropper imageSrc={item.draft.previewUrl} fileName={item.draft.fileName} inputId={item.id} onCancel={() => cancelCrop(item.kind)} onConfirm={(file, previewUrl) => confirmCrop(item.kind, file, previewUrl)} />
                       </div>
                     ) : item.upload ? (
-                      <div className="space-y-3">
-                        <div className="overflow-hidden border border-[#D8DEE8] bg-white">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={item.upload.previewUrl}
-                            alt={`${item.title}预览`}
-                            className="h-40 w-full object-contain"
-                          />
-                        </div>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="grid size-5 place-items-center rounded-full bg-emerald-500 text-[11px] font-bold text-white">
-                                ✓
-                              </span>
-                              <h3 className="text-sm font-semibold text-[#0B2545]">
-                                {item.title} · 已裁剪完成
-                              </h3>
-                            </div>
-                            <p className="mt-1 truncate text-xs text-slate-600">
-                              当前提交图片：{item.upload.fileName}
-                            </p>
-                          </div>
-                          <div className="flex shrink-0 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (item.upload) {
-                                  reCrop(item.kind, item.upload);
-                                }
-                              }}
-                              className="h-9 border border-emerald-300 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                            >
-                              重新裁剪
-                            </button>
-                            <label
-                              htmlFor={item.id}
-                              className="grid size-9 cursor-pointer place-items-center border border-[#D8DEE8] bg-white text-[#163A70] transition hover:border-[#0B4EA2] hover:text-[#0B4EA2]"
-                              title="重新上传"
-                            >
-                              <UploadIcon />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => removeUpload(item.kind)}
-                              className="grid size-9 place-items-center border border-[#D8DEE8] bg-white text-slate-600 transition hover:border-red-300 hover:text-red-600"
-                              title="删除"
-                            >
-                              <TrashIcon />
-                            </button>
-                          </div>
-                        </div>
+                      <div className="flex items-center gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.upload.previewUrl} alt={`${item.title}预览`} className="size-16 rounded-xl bg-white object-cover" />
+                        <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{item.title} <span className="text-emerald-500">✓</span></p><p className="mt-1 truncate text-[11px] text-slate-500">{item.upload.fileName}</p></div>
+                        <div className="flex gap-1"><button type="button" aria-label="重新裁剪" onClick={() => reCrop(item.kind, item.upload!)} className="grid size-8 place-items-center rounded-full bg-white text-blue-600 shadow-sm"><RotateCcw className="size-4" /></button><button type="button" aria-label="删除图片" onClick={() => removeUpload(item.kind)} className="grid size-8 place-items-center rounded-full bg-white text-slate-500 shadow-sm"><Trash2 className="size-4" /></button></div>
                       </div>
                     ) : (
-                      <label
-                        htmlFor={item.id}
-                        onDragOver={(event) => {
-                          event.preventDefault();
-                          setDraggingKind(item.kind);
-                        }}
-                        onDragLeave={() => setDraggingKind(null)}
-                        onDrop={(event) => handleDrop(item.kind, event)}
-                        className={`flex min-h-44 cursor-pointer flex-col items-center justify-center border border-dashed px-4 text-center transition-colors duration-200 ${
-                          isDragging
-                            ? "border-[#0B4EA2] bg-[#EAF2FC]"
-                            : "border-[#B9C4D4] bg-white hover:border-[#0B4EA2] hover:bg-[#F0F5FB]"
-                        }`}
-                      >
-                        <div className="grid size-11 place-items-center border border-[#0B4EA2] bg-[#0B4EA2] text-white">
-                          <UploadIcon />
-                        </div>
-                        <h3 className="mt-4 text-sm font-semibold text-[#0B2545]">
-                          {item.title}
-                        </h3>
-                        <p className="mt-1 text-xs leading-5 text-slate-600">
-                          {item.description}
-                        </p>
+                      <label htmlFor={item.id} onDragOver={(event) => { event.preventDefault(); setDraggingKind(item.kind); }} onDragLeave={() => setDraggingKind(null)} onDrop={(event) => handleDrop(item.kind, event)} className={`flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border border-dashed px-3 transition ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white'}`}>
+                        <div className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><ImageIcon className="size-5" /></div>
+                        <div><p className="text-sm font-semibold">{item.title}</p><p className="mt-0.5 text-[11px] text-slate-500">点击拍照或从相册选择</p></div>
+                        <ChevronRight className="ml-auto size-4 text-slate-400" />
                       </label>
                     )}
                   </div>
                 );
               })}
-              </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto border-t border-[#D8DEE8] p-4 sm:p-5">
-            <div className="border border-[#D8DEE8] bg-[#F8FAFD] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#163A70]">
-                批改状态
-              </p>
-              <div className="mt-2 flex items-center gap-3">
-                <span className="relative flex size-3">
-                  {isGrading ? (
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
-                  ) : null}
-                  <span className="relative inline-flex size-3 rounded-full bg-[#0B4EA2]" />
-                </span>
-                <p className="text-sm font-semibold text-[#0B2545]">
-                  {status}
-                </p>
-              </div>
+            <details className="mt-3 rounded-2xl bg-slate-50 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-600">完善本次批改信息（选填）</summary>
+              <div className="mt-3 grid grid-cols-2 gap-2"><StudentField label="学生姓名" value={studentName} onChange={setStudentName} placeholder="匿名学生" /><StudentField label="学号" value={studentId} onChange={setStudentId} placeholder="选填" /><StudentField label="课程" value={courseName} onChange={setCourseName} placeholder="工程课程" /><StudentField label="班级" value={className} onChange={setClassName} placeholder="选填" /></div>
+            </details>
 
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-xs text-slate-600">
-                  <span>工作流进度</span>
-                  <span>{progressPercent}%</span>
-                </div>
-                <div className="mt-2 h-2 overflow-hidden border border-[#D8DEE8] bg-white">
-                  <div
-                    className="h-full bg-[#0B4EA2] transition-[width] duration-300"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-2">
-                {workflowSteps.map((step) => (
-                  <div
-                    key={step.key}
-                    className="flex items-center justify-between border border-[#D8DEE8] bg-white px-3 py-2 text-xs"
-                  >
-                    <span className="font-medium text-[#0B2545]">
-                      {step.label}
-                    </span>
-                    <span
-                      className={`font-semibold ${
-                        step.status === "done"
-                          ? "text-emerald-600"
-                          : step.status === "running"
-                            ? "text-[#0B4EA2]"
-                            : "text-slate-400"
-                      }`}
-                    >
-                      {step.status === "done"
-                        ? "已完成"
-                        : step.status === "running"
-                          ? "进行中"
-                          : "等待中"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            </div>
-          </aside>
-
-          <section className="flex min-h-[560px] flex-col border border-[#D8DEE8] bg-white shadow-sm lg:max-h-[calc(100vh-132px)]">
-            <div className="flex flex-col gap-4 border-b border-[#D8DEE8] bg-[#F8FAFD] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#0B4EA2]">
-                  AI Assessment Report
-                </p>
-                <h2 className="mt-1 text-lg font-semibold text-[#0B2545]">
-                  AI批改分析报告
-                </h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  自动评阅结论、步骤分析、扣分依据与改进建议
-                </p>
-              </div>
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                <span className="flex h-10 items-center justify-center border border-[#D8DEE8] bg-white px-3 text-xs font-medium text-[#163A70]">
-                  REPORT
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryDrawerOpen(true)}
-                  className="flex h-10 w-full items-center justify-center border border-[#0B4EA2] bg-white px-4 text-sm font-semibold text-[#0B4EA2] shadow-sm transition-colors hover:bg-[#F0F5FB] focus:outline-none focus:ring-4 focus:ring-[#0B4EA2]/15 sm:w-auto"
-                >
-                  历史记录
-                </button>
-                <button
-                  type="button"
-                  onClick={startGrading}
-                  disabled={isGrading || !isReadyToGrade}
-                  className="flex h-10 w-full items-center justify-center gap-2 bg-[#0B4EA2] px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#163A70] focus:outline-none focus:ring-4 focus:ring-[#0B4EA2]/15 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none sm:w-auto"
-                >
-                  {isGrading ? (
-                    <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                  ) : null}
-                  {isGrading
-                    ? "AI分析中..."
-                    : isReadyToGrade
-                      ? "开始AI批改"
-                      : "请先上传题目和解答图片"}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-              {isGrading ? (
-                <ReportProgress
-                  progressPercent={progressPercent}
-                  steps={reportProgressSteps}
-                />
-              ) : null}
-
-              {result ? (
-                <div className="mx-auto mt-4 max-w-4xl border border-[#D8DEE8] bg-white p-5 shadow-sm first:mt-0 sm:p-7">
-                  <div className="mb-5 flex items-center gap-3 border-b border-[#D8DEE8] pb-4">
-                    <div className="grid size-9 place-items-center border border-[#0B4EA2] bg-[#0B4EA2] text-xs font-bold text-white">
-                      AI
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-[#0B2545]">
-                        工程课程智能批改模型
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        Analysis generated by Dify Workflow
-                      </p>
-                    </div>
-                  </div>
-                  <MarkdownResult content={result} />
-                </div>
-              ) : !isGrading ? (
-                <div className="flex min-h-full items-center justify-center">
-                  <div className="max-w-sm text-center">
-                    <div className="mx-auto grid size-14 place-items-center border border-[#D8DEE8] bg-[#F8FAFD] text-[#0B4EA2]">
-                      <SparkIcon />
-                    </div>
-                    <h3 className="mt-5 text-lg font-semibold text-[#0B2545]">
-                      等待生成分析报告
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      完成两张图片裁剪并点击开始批改后，系统将在此输出学术报告式批改结果。
-                    </p>
-                  </div>
-                </div>
-              ) : null}
+            <div className="mt-3 rounded-2xl border border-white/45 bg-slate-200/55 p-3">
+              <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-xs font-medium text-slate-700">{status}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-300/80"><div className="h-full rounded-full bg-[#5f7f9d] transition-[width]" style={{ width: `${progressPercent}%` }} /></div></div><button type="button" onClick={startGrading} disabled={isGrading || !isReadyToGrade} className="shrink-0 rounded-xl bg-[#496983] px-4 py-3 text-xs font-semibold text-white shadow-[0_5px_14px_rgba(51,65,85,.2)] transition active:bg-[#3d5b73] disabled:bg-slate-300">{isGrading ? 'AI解析中...' : '开始AI批改'}</button></div>
             </div>
           </section>
-        </section>
-      </div>
+
+          {isGrading ? <section className="rounded-[24px] bg-white p-4 shadow-[0_8px_24px_rgba(30,41,59,.08)]"><div className="mb-4 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-blue-600 text-white"><Bot className="size-5" /></div><div><h2 className="text-sm font-bold">AI 正在解析</h2><p className="text-[10px] text-slate-500">完成后将自动进入批改结果页</p></div></div><ReportProgress progressPercent={progressPercent} steps={reportProgressSteps} /></section> : null}
+
+          <section>
+            <div className="mb-3 flex items-center justify-between px-1"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">History</p><h2 className="mt-0.5 text-lg font-bold">最近解析</h2></div><button type="button" onClick={() => setIsHistoryDrawerOpen(true)} className="flex items-center text-xs font-medium text-slate-500">查看全部 <ChevronRight className="size-4" /></button></div>
+            <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)] backdrop-blur-xl">
+              {mounted && history.length ? history.slice(0, 3).map((item, index) => <button type="button" key={item.id} onClick={() => viewHistory(item)} className={`flex w-full items-center gap-3 p-3 text-left ${index ? 'border-t border-slate-100' : ''}`}><div className="grid size-14 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-500"><FileText className="size-6" /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.problemFileName}</p><p className="mt-1 flex items-center gap-1 text-[10px] text-slate-400"><BookOpen className="size-3" /> {courseName || '工程课程'} <span className="mx-1">·</span><Clock3 className="size-3" /> {formatHistoryTime(item.createdAt)}</p></div><div className="text-right"><strong className="text-base text-blue-600">{item.score || '--'}</strong><p className="text-[9px] text-slate-400">得分</p></div></button>) : <div className="px-5 py-8 text-center"><div className="mx-auto grid size-11 place-items-center rounded-full bg-slate-100 text-slate-400"><FileText className="size-5" /></div><p className="mt-3 text-sm font-medium text-slate-600">还没有解析记录</p><p className="mt-1 text-[11px] text-slate-400">完成首次 AI 批改后会显示在这里</p></div>}
+            </div>
+          </section>
+        </div>
 
       {isHistoryDrawerOpen ? (
         <div
@@ -789,7 +624,7 @@ export default function Home() {
             className="absolute inset-0 cursor-default"
             onClick={() => setIsHistoryDrawerOpen(false)}
           />
-          <aside className="relative flex h-full w-full max-w-[380px] flex-col border-l border-[#D8DEE8] bg-white shadow-2xl">
+          <aside className="relative mx-auto flex h-full w-full max-w-[430px] flex-col bg-white shadow-2xl">
             <div className="border-b border-[#D8DEE8] bg-[#F8FAFD] px-5 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -877,7 +712,7 @@ export default function Home() {
           </aside>
         </div>
       ) : null}
-    </main>
+    </MobileShell>
   );
 }
 
@@ -963,152 +798,6 @@ function StudentField({
         className="mt-1 h-9 w-full border border-[#D8DEE8] bg-white px-2 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-[#0B4EA2]"
       />
     </label>
-  );
-}
-
-function MarkdownResult({ content }: { content: string }) {
-  const normalizedContent = normalizeReportMarkdown(content);
-
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkMath]}
-      rehypePlugins={[rehypeKatex]}
-      components={{
-        h1: ({ children }) => (
-          <h1 className="mb-4 mt-1 border-b border-[#D8DEE8] pb-3 text-2xl font-semibold leading-tight text-[#0B2545]">
-            {children}
-          </h1>
-        ),
-        h2: ({ children }) => (
-          <h2 className="mb-3 mt-6 border-l-4 border-[#0B4EA2] pl-3 text-xl font-semibold leading-snug text-[#0B2545] first:mt-0">
-            {children}
-          </h2>
-        ),
-        h3: ({ children }) => (
-          <h3 className="mb-2 mt-5 text-lg font-semibold leading-snug text-[#163A70]">
-            {children}
-          </h3>
-        ),
-        p: ({ children }) => (
-          <p className="my-3 text-sm leading-7 text-slate-700">
-            {children}
-          </p>
-        ),
-        ul: ({ children }) => (
-          <ul className="my-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-700">
-            {children}
-          </ul>
-        ),
-        ol: ({ children }) => (
-          <ol className="my-3 list-decimal space-y-2 pl-5 text-sm leading-7 text-slate-700">
-            {children}
-          </ol>
-        ),
-        li: ({ children }) => <li>{children}</li>,
-        blockquote: ({ children }) => (
-          <blockquote className="my-4 border-l-4 border-[#0B4EA2] bg-[#F5F7FA] py-2 pl-4 text-sm text-slate-700">
-            {children}
-          </blockquote>
-        ),
-        code: ({ children, className }) => {
-          const isBlock = Boolean(className);
-
-          if (isBlock) {
-            return <code className={`${className} text-sm`}>{children}</code>;
-          }
-
-          return (
-            <code className="border border-[#D8DEE8] bg-[#F5F7FA] px-1.5 py-0.5 font-mono text-[0.9em] text-[#0B4EA2]">
-              {children}
-            </code>
-          );
-        },
-        pre: ({ children }) => (
-          <pre className="my-4 overflow-x-auto border border-[#163A70] bg-[#0B2545] p-4 font-mono text-sm leading-6 text-slate-50">
-            {children}
-          </pre>
-        ),
-        table: ({ children }) => (
-          <div className="my-4 overflow-x-auto border border-[#D8DEE8]">
-            <table className="w-full border-collapse bg-white text-left text-sm text-slate-700">
-              {children}
-            </table>
-          </div>
-        ),
-        th: ({ children }) => (
-          <th className="border-b border-[#D8DEE8] bg-[#F5F7FA] px-3 py-2 font-semibold text-[#0B2545]">
-            {children}
-          </th>
-        ),
-        td: ({ children }) => (
-          <td className="border-b border-[#E7EBF1] px-3 py-2">
-            {children}
-          </td>
-        ),
-      }}
-    >
-      {normalizedContent}
-    </ReactMarkdown>
-  );
-}
-
-function UploadIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-5"
-      fill="none"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M12 15V4m0 0 4 4m-4-4-4 4M5 15v2.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V15"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-4"
-      fill="none"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M6 7h12m-9 0V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7m-7.5 0 .7 11.2A2 2 0 0 0 10.2 20h3.6a2 2 0 0 0 2-1.8L16.5 7M10 11v5m4-5v5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-    </svg>
-  );
-}
-
-function SparkIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-6"
-      fill="none"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Zm6 11 1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1 1-2.5Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-    </svg>
   );
 }
 
@@ -1429,6 +1118,47 @@ function extractScore(value: string) {
   );
 
   return match?.[1]?.trim() || "";
+}
+
+function extractKnowledgePoints(value: string) {
+  const knowledgeText = extractReportField(value, [
+    "知识点",
+    "考查知识点",
+    "涉及知识点",
+  ]);
+
+  return (knowledgeText ?? "")
+    .replace(/[*#`]/g, "")
+    .split(/[、，,；;|/\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function saveGradingResult(payload: {
+  questionImage: string;
+  questionFileName: string;
+  result: string;
+  score: string;
+  questionType: string;
+  difficulty: number;
+  knowledgePoints: string[];
+  errorLocation: string;
+  errorReason: string;
+  improvement: string;
+}) {
+  try {
+    window.sessionStorage.setItem(gradingResultStorageKey, JSON.stringify(payload));
+  } catch {
+    try {
+      window.sessionStorage.setItem(
+        gradingResultStorageKey,
+        JSON.stringify({ ...payload, questionImage: "" }),
+      );
+    } catch {
+      // Navigation still works if browser storage is unavailable.
+    }
+  }
 }
 
 async function saveSubmission(input: {

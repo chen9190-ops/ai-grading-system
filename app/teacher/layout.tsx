@@ -2,6 +2,8 @@ import Link from "next/link";
 
 const navigation = [
   { href: "/teacher", label: "总览" },
+  { href: "/teacher/tasks", label: "作业管理" },
+  { href: "/teacher/analysis", label: "学情分析" },
   { href: "/teacher/records", label: "批改记录" },
   { href: "/teacher/students", label: "学生统计" },
   { href: "/teacher/errors", label: "错题分析" },

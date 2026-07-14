@@ -28,6 +28,19 @@ body {
     Arial, Helvetica, sans-serif;
 }
 
+/* Student mobile glass surfaces inherit a little lunar gray instead of
+   appearing as isolated, pure-white blocks over the moon landscape. */
+.mobile-lunar-shell [class~="bg-white"],
+.mobile-lunar-shell [class~="bg-white/75"],
+.mobile-lunar-shell [class~="bg-white/78"],
+.mobile-lunar-shell [class~="bg-white/80"],
+.mobile-lunar-shell [class~="bg-white/82"],
+.mobile-lunar-shell [class~="bg-white/85"],
+.mobile-lunar-shell [class~="bg-white/90"],
+.mobile-lunar-shell [class~="bg-white/95"] {
+  background-color: rgb(232 236 240 / 0.78) !important;
+}
+
 .blueprint-grid {
   background-color: #f5f7fa;
   background-image:
