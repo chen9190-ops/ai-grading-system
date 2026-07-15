@@ -47,8 +47,21 @@ jobs:
           envs: PROJECT_DIR,DEPLOY_SHA
           debug: true
           script: |
-            whoami
-            hostname
-            pwd
-            echo "SSH SUCCESS"
-            exit 0
+            set -Eeuo pipefail
+
+            : "${PROJECT_DIR:?GitHub secret PROJECT_DIR is required}"
+            : "${DEPLOY_SHA:?DEPLOY_SHA is required}"
+
+            cd "$PROJECT_DIR"
+            test -d .git
+            test -f .env.production
+
+            PREVIOUS_COMMIT=$(git rev-parse HEAD)
+            git fetch --prune origin main
+            git cat-file -e "${DEPLOY_SHA}^{commit}"
+            git reset --hard "$DEPLOY_SHA"
+
+            PREVIOUS_COMMIT="$PREVIOUS_COMMIT" \
+            TARGET_COMMIT="$DEPLOY_SHA" \
+            APP_DIR="$PROJECT_DIR" \
+              bash scripts/deploy-release.sh
