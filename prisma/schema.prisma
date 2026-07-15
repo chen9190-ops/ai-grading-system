@@ -7,6 +7,65 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum AIConversationType {
+  MECHANICS_ASSISTANT
+  EXAM_GENERATOR
+  TEACHING_REPORT
+}
+
+model User {
+  id              String           @id @default(cuid())
+  name            String
+  email           String           @unique
+  password        String
+  role            UserRole
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  studentProfile  StudentProfile?
+  teacherProfile  TeacherProfile?
+  submissions     Submission[]
+  examPapers      ExamPaper[]      @relation("ExamPaperTeacher")
+  conversations   AIConversation[]
+  teachingReports TeachingReport[] @relation("TeachingReportTeacher")
+
+  @@index([role])
+}
+
+model StudentProfile {
+  id        String @id @default(cuid())
+  userId    String @unique
+  studentId String @unique
+  major     String
+  className String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([className])
+}
+
+model TeacherProfile {
+  id         String @id @default(cuid())
+  userId     String @unique
+  teacherId  String @unique
+  department String
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Course {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  name       String
+  department String
+  createdAt  DateTime @default(now())
+
+  @@index([name])
+}
+
 model Submission {
   id               String   @id @default(cuid())
   studentName      String   @default("匿名学生")
@@ -24,6 +83,13 @@ model Submission {
   firstError       String?  @db.Text
   errorType        String?
   knowledgePoint   String?
+  assignmentName   String?
+  problemImages    Json?
+  answerImages     Json?
+  aiResult         Json?
+  feedback         String?  @db.Text
+  userId           String?
+  student          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt        DateTime @default(now())
 
   @@index([createdAt])
@@ -31,4 +97,47 @@ model Submission {
   @@index([studentName])
   @@index([errorType])
   @@index([knowledgePoint])
+  @@index([userId])
+}
+
+model ExamPaper {
+  id            String   @id @default(cuid())
+  teacherId     String
+  courseName    String
+  chapter       String
+  difficulty    String
+  questionCount Int
+  questions     Json
+  answer        Json
+  createdAt     DateTime @default(now())
+  teacher       User     @relation("ExamPaperTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([teacherId, createdAt])
+  @@index([courseName])
+}
+
+model AIConversation {
+  id            String             @id @default(cuid())
+  userId        String
+  type          AIConversationType
+  question      String             @db.Text
+  answer        String             @db.Text
+  knowledgeUsed Json?
+  createdAt     DateTime           @default(now())
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, createdAt])
+}
+
+model TeachingReport {
+  id         String   @id @default(cuid())
+  teacherId  String
+  courseName String
+  inputData  Json
+  report     Json
+  createdAt  DateTime @default(now())
+  teacher    User     @relation("TeachingReportTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([teacherId, createdAt])
+  @@index([courseName])
 }
