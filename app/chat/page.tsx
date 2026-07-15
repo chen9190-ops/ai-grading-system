@@ -24,10 +24,10 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/assistant/chat", {
+      const response = await fetch("/api/assistant/mechanics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content }),
+        body: JSON.stringify({ question: content }),
       });
       const payload: unknown = await response.json();
       const answer = isRecord(payload) && typeof payload.answer === "string"

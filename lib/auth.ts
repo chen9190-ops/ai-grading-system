@@ -1,4 +1,4 @@
-export type UserRole = "student" | "teacher";
+export type UserRole = "student" | "teacher" | "admin";
 
 export type AppUser = {
   id: string;
@@ -13,17 +13,6 @@ export type SessionPayload = AppUser & {
 
 export const sessionCookieName = "aerospace_learning_session";
 export const sessionMaxAgeSeconds = 60 * 60 * 8;
-
-const fallbackSessionSecret = "ai-grading-system-local-session-secret-change-me";
-
-export function authenticateUser(username: string, password: string, role: UserRole): AppUser | null {
-  const users = getConfiguredUsers();
-  const normalizedUsername = username.trim();
-  const match = users.find((entry) => entry.user.username === normalizedUsername && entry.user.role === role);
-
-  if (!match || !safeEqual(password, match.password)) return null;
-  return match.user;
-}
 
 export async function createSessionToken(user: AppUser) {
   const payload: SessionPayload = {
@@ -49,7 +38,7 @@ export async function verifySessionToken(token?: string | null): Promise<Session
       typeof payload.id !== "string" ||
       typeof payload.username !== "string" ||
       typeof payload.displayName !== "string" ||
-      (payload.role !== "student" && payload.role !== "teacher") ||
+      (payload.role !== "student" && payload.role !== "teacher" && payload.role !== "admin") ||
       typeof payload.expiresAt !== "number" ||
       payload.expiresAt <= Math.floor(Date.now() / 1000)
     ) {
@@ -62,39 +51,23 @@ export async function verifySessionToken(token?: string | null): Promise<Session
   }
 }
 
-function getConfiguredUsers() {
-  return [
-    {
-      user: {
-        id: "student-demo",
-        username: process.env.STUDENT_USERNAME ?? "student",
-        displayName: process.env.STUDENT_DISPLAY_NAME ?? "张同学",
-        role: "student" as const,
-      },
-      password: process.env.STUDENT_PASSWORD ?? "student123",
-    },
-    {
-      user: {
-        id: "teacher-demo",
-        username: process.env.TEACHER_USERNAME ?? "teacher",
-        displayName: process.env.TEACHER_DISPLAY_NAME ?? "教师用户",
-        role: "teacher" as const,
-      },
-      password: process.env.TEACHER_PASSWORD ?? "teacher123",
-    },
-  ];
-}
-
 async function sign(value: string) {
+  const secret = getSessionSecret();
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(process.env.AUTH_SECRET ?? fallbackSessionSecret),
+    new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
   return bytesToBase64Url(new Uint8Array(signature));
+}
+
+function getSessionSecret() {
+  const configured = process.env.AUTH_SECRET?.trim();
+  if (configured) return configured;
+  throw new Error("AUTH_SECRET must be configured");
 }
 
 function encodeBase64Url(value: string) {

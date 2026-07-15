@@ -394,6 +394,7 @@ export default function Home() {
         problemImageName: questionUpload.fileName,
         answerImageName: answerUpload.fileName,
         gradingResult: normalizedResult,
+        assignmentName: `${courseName.trim() || "工程课程"} AI拍照解析`,
       });
 
       if (!submissionSaved) {
@@ -1169,6 +1170,7 @@ async function saveSubmission(input: {
   problemImageName: string;
   answerImageName: string;
   gradingResult: string;
+  assignmentName: string;
 }) {
   const scoreText = extractScore(input.gradingResult);
   const score = scoreText ? Number(scoreText.split("/")[0].trim()) : null;
@@ -1200,6 +1202,9 @@ async function saveSubmission(input: {
       "考查知识点",
       "涉及知识点",
     ]),
+    problemImages: [input.problemImageName],
+    answerImages: [input.answerImageName],
+    feedback: extractReportField(input.gradingResult, ["改进建议", "学习建议", "建议"]),
   };
 
   try {

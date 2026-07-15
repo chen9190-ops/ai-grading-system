@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,11 @@ const requiredStringFields = [
 
 export async function POST(request: Request) {
   try {
+    const session = await getCurrentSession();
+    if (!session) return Response.json({ error: "未登录" }, { status: 401 });
+    if (session.role !== "student" && session.role !== "admin") {
+      return Response.json({ error: "无权保存学生批改记录" }, { status: 403 });
+    }
     const body: unknown = await request.json();
 
     if (!isRecord(body)) {
@@ -27,12 +33,27 @@ export async function POST(request: Request) {
       return Response.json({ error: "score 必须在 0 到 100 之间" }, { status: 400 });
     }
 
+    const sessionUser = await prisma.user.findUnique({ where: { id: session.id }, select: { id: true, name: true, studentProfile: { select: { studentId: true, className: true } } } });
+    if (!sessionUser) return Response.json({ error: "当前登录用户尚未建立数据库档案" }, { status: 409 });
+
+    const duplicate = await prisma.submission.findFirst({
+      where: {
+        userId: sessionUser.id,
+        problemImageName: asString(body.problemImageName)!,
+        answerImageName: asString(body.answerImageName)!,
+        gradingResult: asString(body.gradingResult)!,
+        createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
+      },
+      select: { id: true, createdAt: true },
+    });
+    if (duplicate) return Response.json({ submission: duplicate, duplicate: true }, { status: 200 });
+
     const submission = await prisma.submission.create({
       data: {
-        studentName: asString(body.studentName) || "匿名学生",
-        studentId: asNullableString(body.studentId),
+        studentName: sessionUser.name,
+        studentId: sessionUser.studentProfile?.studentId ?? asNullableString(body.studentId),
         courseName: asString(body.courseName) || "工程课程",
-        className: asNullableString(body.className),
+        className: sessionUser.studentProfile?.className ?? asNullableString(body.className),
         problemImageName: asString(body.problemImageName)!,
         answerImageName: asString(body.answerImageName)!,
         problemOcr: asNullableString(body.problemOcr),
@@ -44,6 +65,17 @@ export async function POST(request: Request) {
         firstError: asNullableString(body.firstError),
         errorType: asNullableString(body.errorType),
         knowledgePoint: asNullableString(body.knowledgePoint),
+        assignmentName: asNullableString(body.assignmentName),
+        problemImages: asJson(body.problemImages),
+        answerImages: asJson(body.answerImages),
+        aiResult: {
+          result: asString(body.gradingResult)!,
+          firstError: asNullableString(body.firstError),
+          errorType: asNullableString(body.errorType),
+          knowledgePoint: asNullableString(body.knowledgePoint),
+        },
+        feedback: asNullableString(body.feedback),
+        userId: sessionUser.id,
       },
     });
 
@@ -52,6 +84,12 @@ export async function POST(request: Request) {
     console.error("Failed to save submission", error);
     return Response.json({ error: "批改记录保存失败" }, { status: 500 });
   }
+}
+
+function asJson(value: unknown) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value.slice(0, 20)
+    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

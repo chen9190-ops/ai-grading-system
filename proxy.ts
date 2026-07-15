@@ -10,7 +10,7 @@ export async function proxy(request: NextRequest) {
 
   if (pathname === "/login") {
     if (!session) return NextResponse.next();
-    return NextResponse.redirect(new URL(session.role === "teacher" ? "/teacher" : "/", request.url));
+    return NextResponse.redirect(new URL(session.role === "student" ? "/" : "/teacher", request.url));
   }
 
   const requiredRole = getRequiredRole(pathname);
@@ -23,16 +23,18 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (session.role !== requiredRole) {
+  if (session.role !== "admin" && session.role !== requiredRole) {
     if (pathname.startsWith("/api/")) return Response.json({ error: "无权访问" }, { status: 403 });
-    return NextResponse.redirect(new URL(session.role === "teacher" ? "/teacher" : "/", request.url));
+    return NextResponse.redirect(new URL(session.role === "student" ? "/" : "/teacher", request.url));
   }
 
   return NextResponse.next();
 }
 
 function getRequiredRole(pathname: string): UserRole | null {
-  if (pathname === "/teacher" || pathname.startsWith("/teacher/") || pathname.startsWith("/api/teacher/")) return "teacher";
+  if (pathname === "/teacher" || pathname.startsWith("/teacher/") || pathname.startsWith("/exam/") || pathname.startsWith("/report/") || pathname.startsWith("/api/teacher/") || pathname.startsWith("/api/exam/") || pathname.startsWith("/api/report/")) return "teacher";
+  if (pathname.startsWith("/student/") || pathname.startsWith("/api/assistant/") || pathname.startsWith("/api/practice/")) return "student";
+  if (pathname === "/api/submissions" || pathname === "/api/grade" || pathname.startsWith("/api/grade/")) return "student";
   if (studentPaths.some((path) => path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`))) return "student";
   return null;
 }
@@ -49,5 +51,14 @@ export const config = {
     "/profile/:path*",
     "/teacher/:path*",
     "/api/teacher/:path*",
+    "/student/:path*",
+    "/exam/:path*",
+    "/report/:path*",
+    "/api/assistant/:path*",
+    "/api/practice/:path*",
+    "/api/submissions",
+    "/api/grade/:path*",
+    "/api/exam/:path*",
+    "/api/report/:path*",
   ],
 };

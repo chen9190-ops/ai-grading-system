@@ -12,7 +12,6 @@ import {
   Target,
 } from "lucide-react";
 
-type CountItem = { name: string; count: number };
 type SectionKey =
   | "classSummary"
   | "mainIssues"
@@ -21,15 +20,15 @@ type SectionKey =
   | "nextStagePlan";
 
 export default function TeachingReportGenerator({
-  studentCount,
-  averageScore,
-  weakPoints,
-  errorTypes,
+  course,
+  students,
+  scores,
+  assignments,
 }: {
-  studentCount: number;
-  averageScore: number | null;
-  weakPoints: CountItem[];
-  errorTypes: CountItem[];
+  course: string;
+  students: Array<Record<string, unknown>>;
+  scores: number[];
+  assignments: Array<Record<string, unknown>>;
 }) {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState("");
@@ -37,20 +36,20 @@ export default function TeachingReportGenerator({
   const sections = useMemo(() => splitReportSections(report), [report]);
 
   async function generateReport() {
-    if (averageScore === null) return;
+    if (!students.length || !scores.length) return;
 
     setLoading(true);
     setMessage("");
 
     try {
-      const response = await fetch("/api/teacher/report", {
+      const response = await fetch("/api/report/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          student_count: studentCount,
-          average_score: averageScore,
-          weak_points: weakPoints,
-          error_types: errorTypes,
+          course,
+          students,
+          scores,
+          assignments,
         }),
       });
       const payload: unknown = await response.json();
@@ -59,8 +58,7 @@ export default function TeachingReportGenerator({
         !response.ok ||
         !isRecord(payload) ||
         payload.success !== true ||
-        typeof payload.report !== "string" ||
-        !payload.report.trim()
+        !isRecord(payload.report)
       ) {
         const error = isRecord(payload) && typeof payload.error === "string"
           ? payload.error
@@ -68,7 +66,7 @@ export default function TeachingReportGenerator({
         throw new Error(error);
       }
 
-      setReport(payload.report.trim());
+      setReport(formatStructuredReport(payload.report));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "教学报告生成失败，请稍后重试");
     } finally {
@@ -76,7 +74,7 @@ export default function TeachingReportGenerator({
     }
   }
 
-  const canGenerate = studentCount > 0 && averageScore !== null;
+  const canGenerate = students.length > 0 && scores.length > 0;
 
   return (
     <section className="mt-6 overflow-hidden border border-[#B9D2F2] bg-white shadow-sm">
@@ -142,4 +140,27 @@ function matchSection(line: string): SectionKey | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function formatStructuredReport(report: Record<string, unknown>) {
+  if (typeof report.text === "string" && report.text.trim()) return report.text.trim();
+
+  const sections = [
+    ["班级学习总结", report.summary ?? report.classSummary],
+    ["主要问题分析", report.mainIssues ?? report.problems],
+    ["薄弱知识点", report.weakPoints ?? report.weakKnowledgePoints],
+    ["教学建议", report.suggestions ?? report.teachingSuggestions],
+    ["下一阶段计划", report.improvements ?? report.nextStagePlan],
+  ];
+
+  return sections
+    .map(([title, value]) => `## ${title}\n${formatValue(value)}`)
+    .join("\n\n");
+}
+
+function formatValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map((item) => `- ${typeof item === "string" ? item : JSON.stringify(item)}`).join("\n");
+  if (value !== undefined && value !== null) return JSON.stringify(value, null, 2);
+  return "";
 }

@@ -13,9 +13,9 @@ const knowledgePoints = ["力矩平衡", "受力分析", "梁的弯曲", "应力
 const errorTypes = ["公式错误", "计算错误", "方向判断错误", "约束条件遗漏", "单位换算错误"];
 
 async function main() {
-  const studentPassword = await hash("student123", 12);
-  const teacherPassword = await hash("teacher123", 12);
-  const adminPassword = await hash("admin123", 12);
+  const studentPassword = await hash(requiredEnv("SEED_STUDENT_PASSWORD"), 12);
+  const teacherPassword = await hash(requiredEnv("SEED_TEACHER_PASSWORD"), 12);
+  const adminPassword = await hash(requiredEnv("SEED_ADMIN_PASSWORD"), 12);
 
   await prisma.user.upsert({
     where: { email: "admin@demo.edu.cn" },
@@ -97,6 +97,12 @@ async function main() {
       },
     });
   }
+}
+
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} must be configured before running prisma db seed`);
+  return value;
 }
 
 main()

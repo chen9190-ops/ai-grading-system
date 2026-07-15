@@ -5,6 +5,14 @@ type CallDifyChatflowOptions = {
   url: string | undefined;
   query: string;
   user: string;
+  inputs?: Record<string, unknown>;
+};
+
+type CallDifyWorkflowOptions = {
+  apiKey: string | undefined;
+  url: string | undefined;
+  inputs: Record<string, unknown>;
+  user: string;
 };
 
 type DifyChatflowResponse = {
@@ -23,6 +31,7 @@ export async function callDifyChatflow({
   url,
   query,
   user,
+  inputs = {},
 }: CallDifyChatflowOptions): Promise<string> {
   if (!apiKey?.trim()) {
     throw new DifyChatflowError("Dify Chatflow API Key 未配置");
@@ -41,7 +50,7 @@ export async function callDifyChatflow({
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        inputs: {},
+        inputs,
         query,
         user,
         response_mode: "blocking",
@@ -71,6 +80,57 @@ export async function callDifyChatflow({
   }
 
   return parsed.answer;
+}
+
+export async function callDifyWorkflow({
+  apiKey,
+  url,
+  inputs,
+  user,
+}: CallDifyWorkflowOptions): Promise<Record<string, unknown>> {
+  if (!apiKey?.trim()) {
+    throw new DifyChatflowError("Dify Workflow API Key 未配置");
+  }
+  if (!url?.trim()) {
+    throw new DifyChatflowError("Dify Workflow URL 未配置");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ inputs, user, response_mode: "blocking" }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(90_000),
+    });
+  } catch (error) {
+    throw new DifyChatflowError(
+      error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")
+        ? "Dify Workflow 请求超时"
+        : "无法连接 Dify Workflow",
+    );
+  }
+
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new DifyChatflowError(
+      extractError(data) || `Dify Workflow 请求失败（${response.status}）`,
+    );
+  }
+  if (!isRecord(data)) {
+    throw new DifyChatflowError("Dify Workflow 返回格式异常");
+  }
+
+  const workflowData = isRecord(data.data) ? data.data : data;
+  const outputs = workflowData.outputs;
+  if (!isRecord(outputs)) {
+    throw new DifyChatflowError("Dify Workflow 返回格式异常：缺少 outputs");
+  }
+  return outputs;
 }
 
 function parseChatflowResponse(value: unknown): DifyChatflowResponse | null {
