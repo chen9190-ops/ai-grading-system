@@ -1,57 +1,57 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+APP_DIR="${APP_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+ENV_FILE="${ENV_FILE:-$APP_DIR/.env.production}"
+failed=0
 
 check_command() {
   local name="$1"
-  local cmd="$2"
-  if command -v "$cmd" >/dev/null 2>&1; then
-    echo "PASS $name"
+  local command_name="$2"
+  if command -v "$command_name" >/dev/null 2>&1; then
+    echo "PASS $name: $($command_name --version 2>/dev/null | head -n 1 || true)"
   else
     echo "FAIL $name"
+    failed=1
   fi
 }
 
-check_port() {
-  local port="$1"
-  local name="$2"
-  if (command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":$port") || \
-     (command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | awk '{print $4}' | grep -q ":$port"); then
-    echo "PASS $name"
+check_command "Node.js" node
+check_command "npm" npm
+check_command "PM2" pm2
+check_command "Nginx" nginx
+check_command "pg_dump" pg_dump
+check_command "psql" psql
+check_command "pg_restore" pg_restore
+
+if [ -f "$ENV_FILE" ]; then
+  echo "PASS Environment file"
+  # shellcheck source=scripts/lib/database-env.sh
+  source "$SCRIPT_DIR/lib/database-env.sh"
+  if load_database_env "$ENV_FILE" && psql "$PG_DATABASE_URL" --no-psqlrc --set=ON_ERROR_STOP=1 --command='SELECT 1;' >/dev/null 2>&1; then
+    echo "PASS Database connection"
   else
-    echo "FAIL $name"
-  fi
-}
-
-check_command "Node.js" "node"
-check_command "npm" "npm"
-check_command "PM2" "pm2"
-check_command "Nginx" "nginx"
-check_command "PostgreSQL client" "pg_dump"
-check_command "Prisma" "npx"
-
-if [ -f ".env.production" ]; then
-  echo "PASS Environment File"
-else
-  echo "FAIL Environment File"
-fi
-
-if command -v psql >/dev/null 2>&1; then
-  if [ -n "${DATABASE_URL:-}" ]; then
-    if psql "$DATABASE_URL" -c 'SELECT 1' >/dev/null 2>&1; then
-      echo "PASS Database Connection"
-    else
-      echo "FAIL Database Connection"
-    fi
-  else
-    if psql -d postgres -c 'SELECT 1' >/dev/null 2>&1; then
-      echo "PASS Database Connection"
-    else
-      echo "FAIL Database Connection"
-    fi
+    echo "FAIL Database connection"
+    failed=1
   fi
 else
-  echo "FAIL Database Connection"
+  echo "FAIL Environment file: $ENV_FILE"
+  failed=1
 fi
 
-check_port "3000" "Port 3000"
-check_port "80" "Port 80"
+if curl --silent --show-error --fail --max-time 10 http://127.0.0.1:3000/api/health >/dev/null; then
+  echo "PASS Application health"
+else
+  echo "FAIL Application health"
+  failed=1
+fi
+
+if nginx -t >/dev/null 2>&1; then
+  echo "PASS Nginx configuration"
+else
+  echo "FAIL Nginx configuration"
+  failed=1
+fi
+
+exit "$failed"

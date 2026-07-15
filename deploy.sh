@@ -25,7 +25,7 @@ echo "==> Updating apt packages"
 apt update
 
 echo "==> Installing base packages"
-apt install -y ca-certificates curl gnupg git nginx
+apt install -y ca-certificates curl gnupg git nginx postgresql-client
 
 if ! command -v node >/dev/null 2>&1 || ! node -v | grep -q "v${NODE_MAJOR}."; then
   echo "==> Installing Node.js ${NODE_MAJOR}"
@@ -57,23 +57,15 @@ cd "$APP_DIR"
 if [ ! -f ".env.production" ]; then
   cp .env.production.example .env.production
   echo "==> Created .env.production from .env.production.example"
-  echo "==> Please edit $APP_DIR/.env.production and set DIFY_API_KEY before production use."
+  chmod 600 .env.production
+  echo "==> Edit $APP_DIR/.env.production, then rerun deploy.sh."
+  exit 1
 fi
 
-echo "==> Installing dependencies"
-npm install
-
-echo "==> Building Next.js application"
-npm run build
-
-echo "==> Starting application with PM2"
 mkdir -p /var/log/pm2
-set -a
-# shellcheck disable=SC1091
-source "$APP_DIR/.env.production"
-set +a
-pm2 startOrRestart ecosystem.config.js --env production --update-env
-pm2 save
+PREVIOUS_COMMIT=$(git rev-parse HEAD)
+TARGET_COMMIT="$PREVIOUS_COMMIT"
+APP_DIR="$APP_DIR" PREVIOUS_COMMIT="$PREVIOUS_COMMIT" TARGET_COMMIT="$TARGET_COMMIT" bash scripts/deploy-release.sh
 pm2 startup systemd -u root --hp /root >/tmp/pm2-startup-command.txt
 
 echo "==> Configuring Nginx"

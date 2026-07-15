@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,102 +15,55 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy
+    name: Deploy production
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    environment: production
 
     steps:
-      - name: Deploy over SSH
+      - name: Checkout deployment commit
+        uses: actions/checkout@v4
+
+      - name: Validate deployment scripts
+        run: |
+          bash -n deploy.sh update.sh scripts/*.sh scripts/lib/*.sh
+
+      - name: Validate application build
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Deploy exact commit over SSH
         uses: appleboy/ssh-action@v1.2.5
         env:
- 	  PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
- 	  DB_HOST: ${{ secrets.DB_HOST }}
- 	  DB_PORT: ${{ secrets.DB_PORT }}
- 	  DB_USER: ${{ secrets.DB_USER }}
- 	  DB_NAME: ${{ secrets.DB_NAME }}
- 	  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          
+          PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.ECS_HOST }}
+          port: ${{ secrets.ECS_SSH_PORT || '22' }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_KEY }}
-          envs: "PROJECT_DIR,DB_HOST,DB_PORT,DB_USER,DB_NAME,DB_PASSWORD"
+          fingerprint: ${{ secrets.ECS_HOST_FINGERPRINT }}
+          envs: PROJECT_DIR,DEPLOY_SHA
+          command_timeout: 35m
+          script_stop: true
           script: |
-            set -euo pipefail
+            set -Eeuo pipefail
 
-            DEPLOYMENT_START_TIME=$(date +%s)
-            DEPLOYMENT_START_AT=$(date '+%Y-%m-%d %H:%M:%S %Z')
-            CURRENT_COMMIT=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || true)
-            CURRENT_BRANCH=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-
-            rollback_deployment() {
-              echo "========== Rollback =========="
-              if [ -n "$CURRENT_COMMIT" ]; then
-                git reset --hard "$CURRENT_COMMIT"
-              fi
-              npm install
-              npm run build
-              pm2 restart ai-grading-system || pm2 start ecosystem.config.js --env production
-              pm2 save
-              echo "Rollback Success"
-              echo "Rollback Commit: ${CURRENT_COMMIT:-unknown}"
-            }
-
-            trap 'status=$?; if [ $status -ne 0 ]; then rollback_deployment; fi; exit $status' EXIT
-
-            echo "========== Deployment Started =========="
-            echo "Start Time: $DEPLOYMENT_START_AT"
-            echo "Commit: ${CURRENT_COMMIT:-unknown}"
-            echo "Branch: ${CURRENT_BRANCH:-unknown}"
+            : "${PROJECT_DIR:?GitHub secret PROJECT_DIR is required}"
+            : "${DEPLOY_SHA:?DEPLOY_SHA is required}"
 
             cd "$PROJECT_DIR"
+            test -d .git
+            test -f .env.production
 
-            echo "========== Git Pull =========="
-            git pull
+            PREVIOUS_COMMIT=$(git rev-parse HEAD)
+            git fetch --prune origin main
+            git cat-file -e "${DEPLOY_SHA}^{commit}"
+            git reset --hard "$DEPLOY_SHA"
 
-            echo "========== Backup Database =========="
-            mkdir -p /var/backups/ai-grading-system
-            if command -v pg_dump >/dev/null 2>&1; then
-              BACKUP_FILE="/var/backups/ai-grading-system/backup_$(date '+%Y%m%d_%H%M%S').sql"
-              PGPASSWORD="$DB_PASSWORD" pg_dump \
- 		 -h "$DB_HOST" \
- 		 -p "$DB_PORT" \
- 		 -U "$DB_USER" \
- 		 "$DB_NAME" > "$BACKUP_FILE"
-              find /var/backups/ai-grading-system -maxdepth 1 -type f -name 'backup_*.sql' | sort | head -n -30 | xargs -r rm -f
-              echo "Backup Success"
-              echo "Backup File: $BACKUP_FILE"
-            else
-              echo "PostgreSQL client not found; skipping backup"
-            fi
-
-            echo "========== Install =========="
-            npm install
-
-            echo "========== Prisma =========="
-            npx prisma generate
-            npx prisma migrate deploy
-
-            echo "========== Build =========="
-            npm run build
-
-            echo "========== Restart PM2 =========="
-            pm2 restart ai-grading-system || pm2 start ecosystem.config.js --env production
-            pm2 save
-
-            echo "========== Health Check =========="
-            sleep 5
-            HTTP_STATUS=$(curl -I --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000 || true)
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "✅ Health Check Passed"
-            else
-              echo "Health check failed with status: $HTTP_STATUS"
-              exit 1
-            fi
-
-            echo "========== Deployment Finished =========="
-            DEPLOYMENT_END_TIME=$(date +%s)
-            echo "End Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-            echo "Duration: $((DEPLOYMENT_END_TIME - DEPLOYMENT_START_TIME)) seconds"
-            echo "Commit: ${CURRENT_COMMIT:-unknown}"
-            echo "Branch: ${CURRENT_BRANCH:-unknown}"
+            PREVIOUS_COMMIT="$PREVIOUS_COMMIT" \
+            TARGET_COMMIT="$DEPLOY_SHA" \
+            APP_DIR="$PROJECT_DIR" \
+              bash scripts/deploy-release.sh
