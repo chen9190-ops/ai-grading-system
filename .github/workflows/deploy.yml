@@ -22,12 +22,18 @@ jobs:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.5
         env:
-          PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+ 	  PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+ 	  DB_HOST: ${{ secrets.DB_HOST }}
+ 	  DB_PORT: ${{ secrets.DB_PORT }}
+ 	  DB_USER: ${{ secrets.DB_USER }}
+ 	  DB_NAME: ${{ secrets.DB_NAME }}
+ 	  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          
         with:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_KEY }}
-          envs: PROJECT_DIR
+          envs: PROJECT_DIR,DB_HOST,DB_PORT,DB_USER,DB_NAME,DB_PASSWORD
           script: |
             set -euo pipefail
 
@@ -65,7 +71,11 @@ jobs:
             mkdir -p /var/backups/ai-grading-system
             if command -v pg_dump >/dev/null 2>&1; then
               BACKUP_FILE="/var/backups/ai-grading-system/backup_$(date '+%Y%m%d_%H%M%S').sql"
-              pg_dump ai_grading_system > "$BACKUP_FILE"
+              PGPASSWORD="$DB_PASSWORD" pg_dump \
+ 		 -h "$DB_HOST" \
+ 		 -p "$DB_PORT" \
+ 		 -U "$DB_USER" \
+ 		 "$DB_NAME" > "$BACKUP_FILE"
               find /var/backups/ai-grading-system -maxdepth 1 -type f -name 'backup_*.sql' | sort | head -n -30 | xargs -r rm -f
               echo "Backup Success"
               echo "Backup File: $BACKUP_FILE"
