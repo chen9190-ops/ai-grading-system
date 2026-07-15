@@ -44,10 +44,7 @@ jobs:
           port: ${{ secrets.ECS_SSH_PORT || '22' }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_KEY }}
-          fingerprint: ${{ secrets.ECS_HOST_FINGERPRINT }}
           envs: PROJECT_DIR,DEPLOY_SHA
-          command_timeout: 35m
-          script_stop: true
           script: |
             set -Eeuo pipefail
 
