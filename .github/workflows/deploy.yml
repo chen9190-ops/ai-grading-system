@@ -33,7 +33,7 @@ jobs:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_KEY }}
-          envs: PROJECT_DIR,DB_HOST,DB_PORT,DB_USER,DB_NAME,DB_PASSWORD
+          envs: "PROJECT_DIR,DB_HOST,DB_PORT,DB_USER,DB_NAME,DB_PASSWORD"
           script: |
             set -euo pipefail
 
