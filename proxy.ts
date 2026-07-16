@@ -32,7 +32,10 @@ export async function proxy(request: NextRequest) {
 }
 
 function appUrl(request: NextRequest, pathname: string) {
-  return new URL(`${request.nextUrl.basePath}${pathname}`, request.url);
+  const appPath = pathname === "/" && request.nextUrl.basePath
+    ? request.nextUrl.basePath
+    : `${request.nextUrl.basePath}${pathname}`;
+  return new URL(appPath, request.url);
 }
 
 function redirectToAppPath(request: NextRequest, pathname: string) {
