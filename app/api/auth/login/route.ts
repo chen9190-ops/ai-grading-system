@@ -1,4 +1,4 @@
-import { createSessionToken, sessionCookieName, sessionMaxAgeSeconds, type UserRole } from "@/lib/auth";
+import { createSessionToken, sessionCookieName, sessionMaxAgeSeconds, shouldUseSecureSessionCookie, type UserRole } from "@/lib/auth";
 import { authenticateApplicationUser } from "@/lib/auth-server";
 
 export async function POST(request: Request) {
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
     const token = await createSessionToken(user);
     const response = Response.json({ user, redirectTo: user.role === "student" ? "/" : "/teacher" });
-    response.headers.append("Set-Cookie", `${sessionCookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionMaxAgeSeconds}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+    response.headers.append("Set-Cookie", `${sessionCookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionMaxAgeSeconds}${shouldUseSecureSessionCookie() ? "; Secure" : ""}`);
     return response;
   } catch (error) {
     console.error("Login request failed", error);

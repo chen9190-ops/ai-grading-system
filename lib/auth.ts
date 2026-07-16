@@ -14,6 +14,10 @@ export type SessionPayload = AppUser & {
 export const sessionCookieName = "aerospace_learning_session";
 export const sessionMaxAgeSeconds = 60 * 60 * 8;
 
+export function shouldUseSecureSessionCookie() {
+  return process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_HTTPS === "true";
+}
+
 export async function createSessionToken(user: AppUser) {
   const payload: SessionPayload = {
     ...user,
