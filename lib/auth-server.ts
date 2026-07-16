@@ -17,24 +17,20 @@ export async function authenticateApplicationUser(
 ): Promise<AppUser | null> {
   const normalizedUsername = username.trim().toLowerCase();
 
-  try {
-    const databaseUser = await prisma.user.findFirst({
-      where: {
-        email: { equals: normalizedUsername, mode: "insensitive" },
-        role: prismaRoles[role],
-      },
-    });
+  const databaseUser = await prisma.user.findFirst({
+    where: {
+      email: { equals: normalizedUsername, mode: "insensitive" },
+      role: prismaRoles[role],
+    },
+  });
 
-    if (databaseUser && await compare(password, databaseUser.password)) {
-      return {
-        id: databaseUser.id,
-        username: databaseUser.email,
-        displayName: databaseUser.name,
-        role,
-      };
-    }
-  } catch (error) {
-    console.error("Database authentication unavailable", error);
+  if (databaseUser && await compare(password, databaseUser.password)) {
+    return {
+      id: databaseUser.id,
+      username: databaseUser.email,
+      displayName: databaseUser.name,
+      role,
+    };
   }
 
   return authenticateConfiguredDemoUser(username, password, role);

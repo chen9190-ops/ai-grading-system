@@ -36,10 +36,14 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password, role }),
       });
-      const payload = await response.json();
 
-      if (!response.ok || typeof payload?.redirectTo !== "string") {
-        throw new Error(typeof payload?.error === "string" ? payload.error : "登录失败，请稍后重试");
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+
+      const payload = await readJsonResponse(response);
+      if (!payload || typeof payload.redirectTo !== "string") {
+        throw new Error("登录服务返回了无效响应，请稍后重试");
       }
 
       router.replace(payload.redirectTo);
@@ -86,4 +90,21 @@ export default function LoginPage() {
       </div>
     </main>
   );
+}
+
+async function readJsonResponse(response: Response): Promise<Record<string, unknown> | null> {
+  if (!response.headers.get("content-type")?.includes("application/json")) return null;
+
+  try {
+    const payload: unknown = await response.json();
+    return typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readErrorMessage(response: Response) {
+  const payload = await readJsonResponse(response);
+  if (typeof payload?.error === "string") return payload.error;
+  return `登录失败（HTTP ${response.status}），请稍后重试`;
 }
