@@ -49,7 +49,7 @@ export default function ChatPage() {
   }
 
   return (
-    <MobileShell className="h-[100dvh] min-h-0 pb-[70px]" contentClassName="flex h-full flex-col">
+    <MobileShell className="h-[100dvh] min-h-0 pb-[calc(4.75rem+env(safe-area-inset-bottom))]" contentClassName="flex h-full min-w-0 flex-col overflow-hidden">
         <MobileTopBar title="AI航空助教" className="z-20 shrink-0" centerContent={<div className="flex min-w-0 items-center justify-center gap-2.5"><div className="relative size-10 shrink-0 overflow-hidden rounded-full border-2 border-white bg-slate-900 shadow-sm"><Image src={withBasePath("/assets/astronaut-ai-assistant.png")} alt="AI 航空助教" fill sizes="40px" className="object-cover object-[58%_25%]" /></div><div className="min-w-0 text-left"><h1 className="truncate text-sm font-bold">AI航空助教</h1><p className="mt-0.5 flex items-center gap-1 text-[9px] text-emerald-500"><span className="size-1.5 rounded-full bg-emerald-500" />在线</p></div></div>} rightAction={<button type="button" aria-label="更多选项" className="grid size-10 place-items-center rounded-full bg-white/80 text-slate-600 shadow-sm"><MoreHorizontal className="size-5" /></button>} />
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">

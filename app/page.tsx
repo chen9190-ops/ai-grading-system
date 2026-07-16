@@ -37,6 +37,8 @@ type StudentLearningStats = {
   completedGradings: number;
   averageScore: number | null;
   aiLearningCount: number;
+  currentCourse: string | null;
+  recentScores: Array<{ id: string; courseName: string; score: number; createdAt: string }>;
   recentErrors: Array<{ id: string; courseName: string; knowledgePoint: string | null; errorType: string | null; score: number | null }>;
 };
 type GradeHistoryItem = {
@@ -107,7 +109,7 @@ export default function Home() {
   const [studentId, setStudentId] = useState("");
   const [courseName, setCourseName] = useState("工程课程");
   const [className, setClassName] = useState("");
-  const [learningStats, setLearningStats] = useState<StudentLearningStats>({ completedGradings: 0, averageScore: null, aiLearningCount: 0, recentErrors: [] });
+  const [learningStats, setLearningStats] = useState<StudentLearningStats>({ completedGradings: 0, averageScore: null, aiLearningCount: 0, currentCourse: null, recentScores: [], recentErrors: [] });
 
   useEffect(() => {
     let isActive = true;
@@ -142,8 +144,11 @@ export default function Home() {
             completedGradings: typeof stats.completedGradings === "number" ? stats.completedGradings : 0,
             averageScore: typeof stats.averageScore === "number" ? stats.averageScore : null,
             aiLearningCount: typeof stats.aiLearningCount === "number" ? stats.aiLearningCount : 0,
+            currentCourse: typeof stats.currentCourse === "string" ? stats.currentCourse : null,
+            recentScores: Array.isArray(stats.recentScores) ? stats.recentScores.filter(isRecentScore) : [],
             recentErrors: Array.isArray(stats.recentErrors) ? stats.recentErrors.filter(isStudentError) : [],
           });
+          if (typeof stats.currentCourse === "string") setCourseName(stats.currentCourse);
         }
       })
       .catch(() => undefined);
@@ -541,7 +546,9 @@ export default function Home() {
               </div>
               <div>
                 <p className="text-lg font-bold tracking-tight">你好，{studentName === "匿名学生" ? "同学" : studentName}</p>
-                <p className="mt-0.5 text-xs text-slate-500">航空航天学院</p>
+                <p className="mt-0.5 max-w-[245px] truncate text-xs text-slate-500">
+                  学号 {studentId || "未绑定"} · {learningStats.currentCourse || "暂无当前课程"}
+                </p>
               </div>
             </div>
             <button type="button" aria-label="通知" className="relative grid size-10 place-items-center rounded-full border border-white/80 bg-white/65 text-slate-700 shadow-sm backdrop-blur-md">
@@ -555,8 +562,8 @@ export default function Home() {
           <section className="overflow-hidden rounded-[24px] border border-white/75 bg-white/72 p-5 text-[#17243a] shadow-[0_14px_32px_rgba(71,85,105,.16)] backdrop-blur-xl">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] text-slate-500">07/07 - 07/13</p>
-                <h2 className="mt-1 text-[15px] font-semibold">本周学习概览</h2>
+                <p className="text-[11px] text-slate-500">当前课程 · {learningStats.currentCourse || "尚未开始课程"}</p>
+                <h2 className="mt-1 text-[15px] font-semibold">个人学习概览</h2>
               </div>
               <span className="rounded-full border border-white/80 bg-slate-100/75 px-2.5 py-1 text-[10px] text-slate-600">持续进步中</span>
             </div>
@@ -567,13 +574,26 @@ export default function Home() {
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                {[[String(learningStats.completedGradings),'批改次数'],[String(learningStats.aiLearningCount),'AI学习'],[learningStats.recentErrors.length ? String(learningStats.recentErrors.length) : '0','近期错题']].map(([value,label]) => (
+                {[[String(learningStats.completedGradings),'批改次数'],[String(learningStats.aiLearningCount),'AI学习'],[learningStats.recentScores[0] ? String(Math.round(learningStats.recentScores[0].score)) : '--','最近成绩']].map(([value,label]) => (
                   <div key={label} className="border-l border-slate-300/70 first:border-0">
                     <strong className="text-base">{value}</strong>
                     <p className="mt-1 text-[9px] text-slate-500">{label}</p>
                   </div>
                 ))}
               </div>
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 px-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">Recent scores</p><h2 className="mt-0.5 text-lg font-bold">最近成绩</h2></div>
+            <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)]">
+              {learningStats.recentScores.length ? learningStats.recentScores.map((item, index) => (
+                <div key={item.id} className={`flex min-w-0 items-center gap-3 p-3 ${index ? "border-t border-slate-100" : ""}`}>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-sm font-bold text-blue-600">{Math.round(item.score)}</span>
+                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.courseName}</p><p className="mt-1 text-[10px] text-slate-400">{formatRecentDate(item.createdAt)} · AI 批改已完成</p></div>
+                  <span className="shrink-0 text-xs font-medium text-emerald-600">已归档</span>
+                </div>
+              )) : <div className="px-5 py-7 text-center"><p className="text-sm font-medium text-slate-600">还没有成绩记录</p><p className="mt-1 text-xs text-slate-400">上传题目和答案完成首次 AI 批改后，这里会展示学习成果。</p></div>}
             </div>
           </section>
 
@@ -1311,6 +1331,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStudentError(value: unknown): value is StudentLearningStats["recentErrors"][number] {
   return isRecord(value) && typeof value.id === "string" && typeof value.courseName === "string";
+}
+
+function isRecentScore(value: unknown): value is StudentLearningStats["recentScores"][number] {
+  return isRecord(value) && typeof value.id === "string" && typeof value.courseName === "string" && typeof value.score === "number" && typeof value.createdAt === "string";
+}
+
+function formatRecentDate(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
 function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {

@@ -5,7 +5,7 @@ export const noErrorLabel = "无明显错误";
 export async function getDashboardData() {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
-  const [totalSubmissions, studentRows, scoreStats, errorCount, recentRecords, todaySubmissions, todayExamPapers, studentScores] =
+  const [totalSubmissions, studentRows, scoreStats, errorCount, recentRecords, todaySubmissions, todayExamPapers, studentScores, aiGuidanceCount, recentConversations] =
     await Promise.all([
       prisma.submission.count(),
       prisma.submission.findMany({
@@ -37,6 +37,20 @@ export async function getDashboardData() {
       prisma.submission.count({ where: { createdAt: { gte: startOfToday } } }),
       prisma.examPaper.count({ where: { createdAt: { gte: startOfToday } } }),
       prisma.submission.findMany({ select: { userId: true, studentId: true, studentName: true, score: true } }),
+      prisma.aIConversation.count({
+        where: { type: { in: ["MECHANICS_ASSISTANT", "EXAM_GENERATOR"] } },
+      }),
+      prisma.aIConversation.findMany({
+        take: 6,
+        orderBy: { createdAt: "desc" },
+        where: { type: { in: ["MECHANICS_ASSISTANT", "EXAM_GENERATOR"] } },
+        select: {
+          id: true,
+          type: true,
+          createdAt: true,
+          user: { select: { name: true } },
+        },
+      }),
     ]);
 
   const scoreGroups = new Map<string, number[]>();
@@ -46,6 +60,24 @@ export async function getDashboardData() {
     scoreGroups.set(key, [...(scoreGroups.get(key) ?? []), row.score]);
   }
   const attentionStudents = [...scoreGroups.values()].filter((scores) => scores.reduce((sum, score) => sum + score, 0) / scores.length < 60).length;
+  const recentActivities = [
+    ...recentRecords.map((record) => ({
+      id: `submission:${record.id}`,
+      type: "submission" as const,
+      title: `${record.studentName}完成${record.courseName}批改`,
+      detail: record.score === null ? "AI 结果已生成" : `成绩 ${Math.round(record.score)} 分`,
+      createdAt: record.createdAt,
+    })),
+    ...recentConversations.map((conversation) => ({
+      id: `conversation:${conversation.id}`,
+      type: "ai" as const,
+      title: conversation.type === "EXAM_GENERATOR"
+        ? `${conversation.user.name}完成 AI 训练`
+        : `${conversation.user.name}使用 AI 力学助手`,
+      detail: conversation.type === "EXAM_GENERATOR" ? "训练记录已保存" : "学习对话已完成",
+      createdAt: conversation.createdAt,
+    })),
+  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 6);
 
   return {
     totalSubmissions,
@@ -56,6 +88,8 @@ export async function getDashboardData() {
     todaySubmissions,
     attentionStudents,
     todayExamPapers,
+    aiGuidanceCount,
+    recentActivities,
     recentRecords,
   };
 }

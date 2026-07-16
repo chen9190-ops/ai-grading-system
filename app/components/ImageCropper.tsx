@@ -27,25 +27,29 @@ export default function ImageCropper({
 }: ImageCropperProps) {
   const cropperRef = useRef<ReactCropperElement>(null);
   const [isCropping, setIsCropping] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [cropError, setCropError] = useState("");
 
-  function handleReady() {
+  async function handleReady() {
     const cropper = cropperRef.current?.cropper;
 
     if (!cropper) {
       return;
     }
 
-    void initializeCropBox(cropper, imageSrc);
+    await initializeCropBox(cropper, imageSrc);
+    setIsReady(true);
   }
 
   const handleConfirm = useCallback(async () => {
     const cropper = cropperRef.current?.cropper;
 
-    if (!cropper || isCropping) {
+    if (!cropper || isCropping || !isReady) {
       return;
     }
 
     setIsCropping(true);
+    setCropError("");
 
     try {
       const canvas = cropper.getCroppedCanvas({
@@ -63,10 +67,13 @@ export default function ImageCropper({
       const previewUrl = canvas.toDataURL("image/jpeg", 0.92);
 
       onConfirm(file, previewUrl);
+    } catch (error) {
+      console.error("Image crop failed", error);
+      setCropError("裁剪图片生成失败，请重新调整裁剪框后再试。");
     } finally {
       setIsCropping(false);
     }
-  }, [fileName, isCropping, onConfirm]);
+  }, [fileName, isCropping, isReady, onConfirm]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -91,23 +98,23 @@ export default function ImageCropper({
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B2545]/70 p-3 backdrop-blur-sm sm:p-5"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B2545]/70 p-1.5 backdrop-blur-sm sm:p-5"
       role="dialog"
     >
-      <div className="flex h-[min(88dvh,900px)] w-[min(94vw,960px)] min-w-0 flex-col overflow-hidden border border-[#D8DEE8] bg-white shadow-2xl">
-        <div className="shrink-0 border-b-4 border-[#0B4EA2] bg-[#163A70] px-4 py-4 sm:px-6">
+      <div className="flex h-[calc(100dvh-0.75rem)] max-h-[900px] w-[calc(100vw-0.75rem)] max-w-[960px] min-w-0 flex-col overflow-hidden border border-[#D8DEE8] bg-white shadow-2xl sm:h-[min(88dvh,900px)] sm:w-[min(94vw,960px)]">
+        <div className="shrink-0 border-b-4 border-[#0B4EA2] bg-[#163A70] px-3 py-2.5 sm:px-6 sm:py-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-white">裁剪图片区域</h2>
               <p className="mt-1 truncate text-xs text-blue-100">{fileName}</p>
             </div>
-            <p className="text-xs leading-5 text-blue-100">
+            <p className="hidden text-xs leading-5 text-blue-100 sm:block">
               拖动图片移动画面，滚轮缩放；拖动裁剪框边线或四角调整范围。
             </p>
           </div>
         </div>
 
-        <div className="cropper-shell min-h-0 flex-1 bg-slate-950">
+        <div className="cropper-shell min-h-0 flex-1 touch-none bg-slate-950">
           <ReactCropper
             key={imageSrc}
             ref={cropperRef}
@@ -139,11 +146,12 @@ export default function ImageCropper({
           />
         </div>
 
-        <div className="shrink-0 border-t border-[#D8DEE8] bg-[#F5F7FA] px-4 py-3 sm:px-6">
-          <div className="mb-3 border border-[#D8DEE8] bg-white px-3 py-2 text-xs leading-5 text-[#163A70]">
+        <div className="shrink-0 border-t border-[#D8DEE8] bg-[#F5F7FA] px-2.5 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:py-3">
+          <div className="mb-2 border border-[#D8DEE8] bg-white px-2 py-1.5 text-[11px] leading-4 text-[#163A70] sm:mb-3 sm:px-3 sm:py-2 sm:text-xs sm:leading-5">
             请只框选学生自己的答案区域，不要包含标准答案、题干解析或其他题目内容。
           </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1.25fr]">
+          {cropError ? <p className="mb-2 text-xs font-medium text-red-600" role="alert">{cropError}</p> : null}
+          <div className="grid grid-cols-[.8fr_1fr_1.2fr] gap-2">
             <button
               type="button"
               onClick={onCancel}
@@ -160,13 +168,13 @@ export default function ImageCropper({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={isCropping}
+              disabled={isCropping || !isReady}
               className="h-11 bg-[#0B4EA2] text-sm font-semibold text-white shadow-sm transition hover:bg-[#163A70] disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none"
             >
-              {isCropping ? "裁剪中..." : "确认裁剪"}
+              {isCropping ? "裁剪中..." : isReady ? "确认裁剪" : "图片加载中"}
             </button>
           </div>
-          <p className="mt-2 text-center text-[11px] leading-4 text-slate-500">
+          <p className="mt-2 hidden text-center text-[11px] leading-4 text-slate-500 sm:block">
             Enter 确认裁剪，Esc 取消裁剪
           </p>
         </div>

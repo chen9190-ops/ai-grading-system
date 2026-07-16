@@ -1,43 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 高校工程课程 AI 智能批改与学习平台
 
-## Getting Started
+面向高校学生、教师与管理员的课程演示系统，包含图片批改、AI 力学助手、训练中心、教学分析和平台管理功能。
 
-Create local environment variables in `.env.local`:
+## 本地运行
 
-```bash
-DIFY_BASE_URL=https://api.dify.ai/v1
-DIFY_API_KEY=your_dify_service_api_key
-```
-
-First, run the development server:
+复制 `.env.example` 为 `.env.local`，配置 PostgreSQL、认证密钥和 Dify 服务后执行：
 
 ```bash
+npm install
+npx prisma generate
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+默认访问地址为 [http://localhost:3000](http://localhost:3000)。生产环境可通过 `NEXT_PUBLIC_BASE_PATH` 配置子路径部署。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 演示账号
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| 角色 | 登录邮箱 | 密码来源 |
+| --- | --- | --- |
+| 学生 | `student@demo.edu.cn` | `SEED_STUDENT_PASSWORD` |
+| 教师 | `teacher@demo.edu.cn` | `SEED_TEACHER_PASSWORD` |
+| 管理员 | `admin@demo.edu.cn` | `SEED_ADMIN_PASSWORD` |
 
-## Learn More
+演示密码不会写入仓库。执行 seed 前，请在环境变量中设置以上三个密码变量：
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npx prisma db seed
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Seed 可重复执行，会生成高校教学演示所需的学生、教师、课程、批改记录、AI 对话、试卷与教学报告。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 质量检查
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run lint
+npx tsc --noEmit
+npm run build
+```

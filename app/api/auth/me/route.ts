@@ -8,7 +8,7 @@ export async function GET() {
     const session = await getCurrentSession();
     if (!session) return Response.json({ success: false, data: null, error: "未登录" }, { status: 401 });
 
-    const [user, scoreStats, recentErrors] = await Promise.all([
+    const [user, scoreStats, recentErrors, recentScores] = await Promise.all([
       prisma.user.findUnique({
         where: { id: session.id },
         select: {
@@ -27,11 +27,31 @@ export async function GET() {
         take: 3,
         select: { id: true, courseName: true, knowledgePoint: true, errorType: true, score: true, createdAt: true },
       }),
+      prisma.submission.findMany({
+        where: { userId: session.id, score: { not: null } },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { id: true, courseName: true, score: true, createdAt: true },
+      }),
     ]);
     if (!user) return Response.json({ success: false, data: null, error: "用户档案不存在" }, { status: 404 });
 
     const { _count, ...profile } = user;
-    return Response.json({ success: true, data: { ...profile, learningStats: { completedGradings: _count.submissions, averageScore: scoreStats._avg.score, aiLearningCount: _count.conversations, recentErrors } }, error: null });
+    return Response.json({
+      success: true,
+      data: {
+        ...profile,
+        learningStats: {
+          completedGradings: _count.submissions,
+          averageScore: scoreStats._avg.score,
+          aiLearningCount: _count.conversations,
+          currentCourse: recentScores[0]?.courseName ?? null,
+          recentScores,
+          recentErrors,
+        },
+      },
+      error: null,
+    });
   } catch (error) {
     console.error("Current user profile failed", error);
     return Response.json({ success: false, data: null, error: "用户档案加载失败" }, { status: 500 });

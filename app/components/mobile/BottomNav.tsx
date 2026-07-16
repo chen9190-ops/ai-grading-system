@@ -26,7 +26,7 @@ export default function BottomNav() {
               : pathname === href || pathname.startsWith(`${href}/`);
 
           return (
-            <Link key={label} href={href} aria-current={active ? "page" : undefined} className={`flex flex-col items-center gap-1 py-1 text-[10px] ${active ? "font-semibold text-blue-600" : "text-slate-400"}`}>
+            <Link key={label} href={href} aria-current={active ? "page" : undefined} className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 text-[10px] ${active ? "font-semibold text-blue-600" : "text-slate-400"}`}>
               <span className={`grid size-8 place-items-center rounded-xl transition-colors ${active ? "bg-blue-50" : ""}`}>
                 <Icon className="size-5" strokeWidth={active ? 2.4 : 1.8} />
               </span>
