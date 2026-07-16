@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 export const noErrorLabel = "无明显错误";
 
 export async function getDashboardData() {
-  const [totalSubmissions, studentRows, scoreStats, errorCount, recentRecords] =
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const [totalSubmissions, studentRows, scoreStats, errorCount, recentRecords, todaySubmissions, todayExamPapers, studentScores] =
     await Promise.all([
       prisma.submission.count(),
       prisma.submission.findMany({
@@ -32,7 +34,18 @@ export async function getDashboardData() {
           createdAt: true,
         },
       }),
+      prisma.submission.count({ where: { createdAt: { gte: startOfToday } } }),
+      prisma.examPaper.count({ where: { createdAt: { gte: startOfToday } } }),
+      prisma.submission.findMany({ select: { userId: true, studentId: true, studentName: true, score: true } }),
     ]);
+
+  const scoreGroups = new Map<string, number[]>();
+  for (const row of studentScores) {
+    if (row.score === null) continue;
+    const key = row.userId ?? row.studentId ?? `name:${row.studentName}`;
+    scoreGroups.set(key, [...(scoreGroups.get(key) ?? []), row.score]);
+  }
+  const attentionStudents = [...scoreGroups.values()].filter((scores) => scores.reduce((sum, score) => sum + score, 0) / scores.length < 60).length;
 
   return {
     totalSubmissions,
@@ -40,6 +53,9 @@ export async function getDashboardData() {
     averageScore: scoreStats._avg.score,
     highestScore: scoreStats._max.score,
     errorCount,
+    todaySubmissions,
+    attentionStudents,
+    todayExamPapers,
     recentRecords,
   };
 }

@@ -41,6 +41,7 @@ async function main() {
     students.push(user);
   }
 
+  const teachers = [];
   for (let index = 1; index <= 10; index += 1) {
     const padded = String(index).padStart(2, "0");
     const id = index === 1 ? "teacher-demo" : `seed-teacher-${padded}`;
@@ -55,6 +56,7 @@ async function main() {
       update: { teacherId: `T2026${padded}`, department: "航空航天学院" },
       create: { userId: user.id, teacherId: `T2026${padded}`, department: "航空航天学院" },
     });
+    teachers.push(user);
   }
 
   for (const [index, name] of courseNames.entries()) {
@@ -66,37 +68,99 @@ async function main() {
     });
   }
 
-  for (let index = 0; index < 100; index += 1) {
-    const student = students[index];
-    const courseName = courseNames[index % courseNames.length];
-    const score = 55 + ((index * 13) % 46);
-    const knowledgePoint = knowledgePoints[index % knowledgePoints.length];
-    const errorType = score >= 90 ? "无明显错误" : errorTypes[index % errorTypes.length];
-    await prisma.submission.upsert({
-      where: { id: `seed-submission-${String(index + 1).padStart(3, "0")}` },
-      update: {},
-      create: {
-        id: `seed-submission-${String(index + 1).padStart(3, "0")}`,
+  for (let studentIndex = 0; studentIndex < students.length; studentIndex += 1) {
+    const student = students[studentIndex];
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const sequence = studentIndex * 3 + attempt;
+      const submissionId = `seed-submission-${String(sequence).padStart(3, "0")}`;
+      const courseName = courseNames[(studentIndex + attempt - 1) % courseNames.length];
+      const score = 52 + ((studentIndex * 11 + attempt * 7) % 49);
+      const knowledgePoint = knowledgePoints[(studentIndex + attempt) % knowledgePoints.length];
+      const errorType = score >= 90 ? "无明显错误" : errorTypes[(studentIndex + attempt) % errorTypes.length];
+      const createdAt = demoDate((sequence - 1) % 21, (studentIndex + attempt) % 12 + 8);
+      const data = {
         userId: student.id,
         studentName: student.name,
-        studentId: `2026${String(index + 1).padStart(3, "0")}`,
-        className: `航设${Math.ceil((index + 1) / 25)}班`,
+        studentId: `2026${String(studentIndex + 1).padStart(3, "0")}`,
+        className: `航设${Math.ceil((studentIndex + 1) / 25)}班`,
         courseName,
-        assignmentName: `${courseName}第${(index % 6) + 1}章训练`,
-        problemImageName: `seed-problem-${index + 1}.png`,
-        answerImageName: `seed-answer-${index + 1}.png`,
-        problemImages: [`seed-problem-${index + 1}.png`],
-        answerImages: [`seed-answer-${index + 1}.png`],
-        gradingResult: `测试批改记录：${knowledgePoint}，得分 ${score}。`,
-        aiResult: { summary: "Seed 测试批改结果", knowledgePoint, errorType },
+        assignmentName: `${courseName}第${((studentIndex + attempt) % 6) + 1}章训练`,
+        problemImageName: `seed/${courseName}/problem-${sequence}.png`,
+        answerImageName: `seed/${courseName}/answer-${sequence}.png`,
+        problemImages: [`seed/${courseName}/problem-${sequence}.png`],
+        answerImages: [`seed/${courseName}/answer-${sequence}.png`],
+        gradingResult: `AI 批改：${knowledgePoint}，得分 ${score}。${score >= 90 ? "解题规范，步骤完整。" : `主要问题为${errorType}。`}`,
+        aiResult: { summary: "高校教学演示批改结果", knowledgePoint, errorType, score },
         score,
-        firstError: score >= 90 ? null : "解题步骤中存在可改进项",
+        firstError: score >= 90 ? null : `在${knowledgePoint}相关步骤出现${errorType}`,
         errorType,
         knowledgePoint,
-        feedback: score >= 90 ? "掌握良好" : `建议强化${knowledgePoint}`,
-      },
-    });
+        feedback: score >= 90 ? "掌握良好，建议挑战综合题" : `建议复习${knowledgePoint}并完成针对性训练`,
+        createdAt,
+      };
+      await prisma.submission.upsert({
+        where: { id: submissionId },
+        update: data,
+        create: {
+          id: submissionId,
+          ...data,
+        },
+      });
+    }
+
+    for (const [conversationIndex, type] of ["MECHANICS_ASSISTANT", "EXAM_GENERATOR"].entries()) {
+      const id = `seed-conversation-${String(studentIndex + 1).padStart(3, "0")}-${conversationIndex + 1}`;
+      const topic = knowledgePoints[(studentIndex + conversationIndex) % knowledgePoints.length];
+      const data = {
+        userId: student.id,
+        type,
+        question: type === "MECHANICS_ASSISTANT" ? `请解释${topic}的核心概念与常用公式` : `生成一道${topic}基础训练题`,
+        answer: type === "MECHANICS_ASSISTANT" ? `${topic}需要结合定义、方向和适用条件分步理解。` : `已生成${topic}训练题及参考答案。`,
+        knowledgeUsed: { topic, source: "seed-demo" },
+        createdAt: demoDate((studentIndex + conversationIndex) % 14, 10 + conversationIndex),
+      };
+      await prisma.aIConversation.upsert({ where: { id }, update: data, create: { id, ...data } });
+    }
   }
+
+  for (let teacherIndex = 0; teacherIndex < teachers.length; teacherIndex += 1) {
+    const teacher = teachers[teacherIndex];
+    for (let paperIndex = 1; paperIndex <= 3; paperIndex += 1) {
+      const id = `seed-exam-${String(teacherIndex + 1).padStart(2, "0")}-${paperIndex}`;
+      const courseName = courseNames[(teacherIndex * 2 + paperIndex - 1) % courseNames.length];
+      const data = {
+        teacherId: teacher.id,
+        courseName,
+        chapter: `第${paperIndex + 1}章 核心概念`,
+        difficulty: ["基础", "中等", "提高"][paperIndex - 1],
+        questionCount: 5,
+        questions: Array.from({ length: 5 }, (_, index) => ({ number: index + 1, title: `${courseName}演示题 ${index + 1}`, score: 20 })),
+        answer: Array.from({ length: 5 }, (_, index) => ({ number: index + 1, key: `参考解答 ${index + 1}` })),
+        createdAt: demoDate((teacherIndex + paperIndex) % 10, 9 + paperIndex),
+      };
+      await prisma.examPaper.upsert({ where: { id }, update: data, create: { id, ...data } });
+    }
+
+    for (let reportIndex = 1; reportIndex <= 2; reportIndex += 1) {
+      const id = `seed-report-${String(teacherIndex + 1).padStart(2, "0")}-${reportIndex}`;
+      const courseName = courseNames[(teacherIndex + reportIndex - 1) % courseNames.length];
+      const data = {
+        teacherId: teacher.id,
+        courseName,
+        inputData: { studentCount: 25, submissionCount: 75, averageScore: 78 + (teacherIndex % 6) },
+        report: { classSummary: `${courseName}整体掌握稳定`, mainIssues: errorTypes.slice(0, 2), weakKnowledgePoints: knowledgePoints.slice(reportIndex, reportIndex + 2), teachingSuggestions: "加强分层练习与错题复盘", nextStagePlan: "开展章节综合训练" },
+        createdAt: demoDate((teacherIndex + reportIndex * 2) % 14, 14),
+      };
+      await prisma.teachingReport.upsert({ where: { id }, update: data, create: { id, ...data } });
+    }
+  }
+}
+
+function demoDate(daysAgo, hour) {
+  const date = new Date();
+  date.setHours(hour, 0, 0, 0);
+  date.setDate(date.getDate() - daysAgo);
+  return date;
 }
 
 function requiredEnv(name) {

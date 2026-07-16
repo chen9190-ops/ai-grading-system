@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getCurrentSession } from "@/lib/session";
 
 const navigation = [
   { href: "/teacher", label: "总览" },
@@ -10,7 +11,8 @@ const navigation = [
   { href: "/teacher/errors", label: "错题分析" },
 ];
 
-export default function TeacherLayout({ children }: { children: React.ReactNode }) {
+export default async function TeacherLayout({ children }: { children: React.ReactNode }) {
+  const session = await getCurrentSession();
   return (
     <div className="blueprint-grid min-h-screen bg-[#F5F7FA] text-slate-950">
       <header className="border-b-4 border-[#0B4EA2] bg-white shadow-sm">
@@ -28,12 +30,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
               </h1>
             </div>
           </div>
-          <Link
-            href="/"
-            className="text-sm font-semibold text-[#0B4EA2] hover:text-[#163A70]"
-          >
-            返回学生端 →
-          </Link>
+          <div className="flex items-center gap-4">{session?.role === "admin" ? <Link href="/admin" className="text-sm font-semibold text-[#0B4EA2] hover:text-[#163A70]">管理后台 →</Link> : null}<Link href="/" className="text-sm font-semibold text-[#0B4EA2] hover:text-[#163A70]">返回学生端 →</Link></div>
         </div>
         <nav className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-4 sm:px-6 lg:px-8">
           {navigation.map((item) => (

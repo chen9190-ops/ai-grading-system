@@ -33,6 +33,12 @@ type CropDraft = {
   fileName: string;
   previewUrl: string;
 };
+type StudentLearningStats = {
+  completedGradings: number;
+  averageScore: number | null;
+  aiLearningCount: number;
+  recentErrors: Array<{ id: string; courseName: string; knowledgePoint: string | null; errorType: string | null; score: number | null }>;
+};
 type GradeHistoryItem = {
   id: string;
   createdAt: string;
@@ -101,6 +107,7 @@ export default function Home() {
   const [studentId, setStudentId] = useState("");
   const [courseName, setCourseName] = useState("工程课程");
   const [className, setClassName] = useState("");
+  const [learningStats, setLearningStats] = useState<StudentLearningStats>({ completedGradings: 0, averageScore: null, aiLearningCount: 0, recentErrors: [] });
 
   useEffect(() => {
     let isActive = true;
@@ -129,6 +136,15 @@ export default function Home() {
         if (typeof payload.data.name === "string") setStudentName(payload.data.name);
         if (profile && typeof profile.studentId === "string") setStudentId(profile.studentId);
         if (profile && typeof profile.className === "string") setClassName(profile.className);
+        if (isRecord(payload.data.learningStats)) {
+          const stats = payload.data.learningStats;
+          setLearningStats({
+            completedGradings: typeof stats.completedGradings === "number" ? stats.completedGradings : 0,
+            averageScore: typeof stats.averageScore === "number" ? stats.averageScore : null,
+            aiLearningCount: typeof stats.aiLearningCount === "number" ? stats.aiLearningCount : 0,
+            recentErrors: Array.isArray(stats.recentErrors) ? stats.recentErrors.filter(isStudentError) : [],
+          });
+        }
       })
       .catch(() => undefined);
     return () => { active = false; };
@@ -545,13 +561,13 @@ export default function Home() {
               <span className="rounded-full border border-white/80 bg-slate-100/75 px-2.5 py-1 text-[10px] text-slate-600">持续进步中</span>
             </div>
             <div className="mt-5 grid grid-cols-[96px_1fr] items-center gap-4">
-              <div className="relative grid size-24 place-items-center rounded-full bg-[conic-gradient(#6688a8_0_82%,rgba(148,163,184,.24)_82%)] p-[7px] shadow-[0_8px_22px_rgba(71,85,105,.14)]">
+              <div className="relative grid size-24 place-items-center rounded-full p-[7px] shadow-[0_8px_22px_rgba(71,85,105,.14)]" style={{ background: `conic-gradient(#6688a8 0 ${Math.round(learningStats.averageScore ?? 0)}%, rgba(148,163,184,.24) ${Math.round(learningStats.averageScore ?? 0)}%)` }}>
                 <div className="grid size-full place-items-center rounded-full bg-white/90 text-center shadow-inner">
-                  <div><strong className="text-2xl">82%</strong><p className="text-[9px] text-slate-500">学习状态</p></div>
+                  <div><strong className="text-2xl">{learningStats.averageScore === null ? "--" : `${Math.round(learningStats.averageScore)}%`}</strong><p className="text-[9px] text-slate-500">平均成绩</p></div>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                {[['8.5h','学习时长'],['32','完成题目'],['85%','正确率']].map(([value,label]) => (
+                {[[String(learningStats.completedGradings),'批改次数'],[String(learningStats.aiLearningCount),'AI学习'],[learningStats.recentErrors.length ? String(learningStats.recentErrors.length) : '0','近期错题']].map(([value,label]) => (
                   <div key={label} className="border-l border-slate-300/70 first:border-0">
                     <strong className="text-base">{value}</strong>
                     <p className="mt-1 text-[9px] text-slate-500">{label}</p>
@@ -559,6 +575,11 @@ export default function Home() {
                 ))}
               </div>
             </div>
+          </section>
+
+          <section>
+            <div className="mb-3 px-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">Recent errors</p><h2 className="mt-0.5 text-lg font-bold">最近错题</h2></div>
+            <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)]">{learningStats.recentErrors.length ? learningStats.recentErrors.map((item, index) => <div key={item.id} className={`flex items-center gap-3 p-3 ${index ? "border-t border-slate-100" : ""}`}><span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><BookOpen className="size-5" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.knowledgePoint || item.courseName}</p><p className="mt-1 text-[10px] text-slate-400">{item.courseName} · {item.errorType || "待复盘"}</p></div><strong className="text-sm text-blue-600">{item.score === null ? "--" : Math.round(item.score)}</strong></div>) : <div className="px-5 py-7 text-center text-xs text-slate-400">暂无错题记录，继续保持。</div>}</div>
           </section>
 
           <section className="rounded-[24px] border border-white/55 bg-[#dfe4e8]/72 p-3 shadow-[0_10px_28px_rgba(51,65,85,.11)] backdrop-blur-xl">
@@ -1286,6 +1307,10 @@ function saveHistorySafely(history: GradeHistoryItem[]) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStudentError(value: unknown): value is StudentLearningStats["recentErrors"][number] {
+  return isRecord(value) && typeof value.id === "string" && typeof value.courseName === "string";
 }
 
 function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {

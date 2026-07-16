@@ -7,11 +7,11 @@ export const dynamic = "force-dynamic";
 export default async function TeacherDashboard() {
   const data = await getDashboardData();
   const cards = [
+    { label: "今日提交", value: data.todaySubmissions, unit: "次" },
+    { label: "待关注学生", value: data.attentionStudents, unit: "人" },
+    { label: "今日 AI 试卷", value: data.todayExamPapers, unit: "份" },
     { label: "累计批改", value: data.totalSubmissions, unit: "次" },
     { label: "参与学生", value: data.totalStudents, unit: "人" },
-    { label: "平均得分", value: formatScore(data.averageScore), unit: "分" },
-    { label: "最高得分", value: formatScore(data.highestScore), unit: "分" },
-    { label: "发现错误", value: data.errorCount, unit: "次" },
   ];
 
   return (

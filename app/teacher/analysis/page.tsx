@@ -8,6 +8,7 @@ import {
 import { EmptyState, formatScore, PageHeading, Panel } from "../components";
 import { getRecordsData, noErrorLabel } from "@/lib/submissions";
 import TeachingReportGenerator from "./TeachingReportGenerator";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ const courseName = "理论力学";
 export default async function TeacherAnalysisPage() {
   const { records } = await getRecordsData({ pageSize: 100, search: courseName });
   const analysis = buildAnalysis(records);
+  const studentUserIds = [...new Set(records.map((record) => record.userId).filter((id): id is string => Boolean(id)))];
+  const aiGuidanceCount = studentUserIds.length ? await prisma.aIConversation.count({ where: { userId: { in: studentUserIds }, type: "MECHANICS_ASSISTANT" } }) : 0;
 
   return (
     <>
@@ -26,7 +29,7 @@ export default async function TeacherAnalysisPage() {
           <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#0B4EA2]">Course Overview</p><h2 className="mt-1 text-xl font-semibold text-[#0B2545]">{courseName}</h2><p className="mt-1 text-xs text-slate-500">航空航天学院 · 班级学习数据概览</p></div>
           <span className={`w-fit px-3 py-1.5 text-xs font-semibold ${records.length ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{records.length ? "数据已同步" : "暂无课程数据"}</span>
         </div>
-        {records.length ? <div className="grid gap-px bg-[#D8DEE8] sm:grid-cols-2 xl:grid-cols-4"><OverviewCard icon={<Users className="size-5" />} label="学生人数" value={String(analysis.studentCount)} unit="人" /><OverviewCard icon={<ClipboardCheck className="size-5" />} label="提交率" value="—" unit="" hint="缺少班级总人数" /><OverviewCard icon={<BarChart3 className="size-5" />} label="平均成绩" value={formatScore(analysis.averageScore)} unit="分" /><OverviewCard icon={<FileWarning className="size-5" />} label="错误数量" value={String(analysis.errorCount)} unit="次" /></div> : <div className="p-5"><EmptyState>暂无“{courseName}”课程提交数据，学生完成批改后将自动生成概览。</EmptyState></div>}
+        {records.length ? <div className="grid gap-px bg-[#D8DEE8] sm:grid-cols-2 xl:grid-cols-5"><OverviewCard icon={<Users className="size-5" />} label="学生人数" value={String(analysis.studentCount)} unit="人" /><OverviewCard icon={<ClipboardCheck className="size-5" />} label="提交数量" value={String(records.length)} unit="次" /><OverviewCard icon={<BarChart3 className="size-5" />} label="平均成绩" value={formatScore(analysis.averageScore)} unit="分" /><OverviewCard icon={<FileWarning className="size-5" />} label="高频错误知识点" value={analysis.knowledgePoints[0]?.name ?? "暂无"} unit="" /><OverviewCard icon={<Users className="size-5" />} label="AI 辅导次数" value={String(aiGuidanceCount)} unit="次" /></div> : <div className="p-5"><EmptyState>暂无“{courseName}”课程提交数据，学生完成批改后将自动生成概览。</EmptyState></div>}
       </section>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(300px,.8fr)_minmax(0,1.2fr)]">
@@ -36,6 +39,18 @@ export default async function TeacherAnalysisPage() {
 
         <Panel title="AI 薄弱知识点分析">
           {analysis.knowledgePoints.length ? <div className="space-y-5">{analysis.knowledgePoints.map((item, index) => <div key={item.name}><div className="grid grid-cols-[28px_minmax(0,1fr)_80px_70px] items-center gap-3 text-sm"><span className={`grid size-7 place-items-center text-xs font-semibold ${index < 3 ? "bg-[#0B4EA2] text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span><span className="truncate font-semibold text-[#0B2545]">{item.name}</span><span className="text-right text-slate-600">{item.count} 次</span><span className="text-right font-semibold text-[#0B4EA2]">{item.rate}%</span></div><div className="ml-10 mt-2 h-2 overflow-hidden bg-[#E7EBF1]"><div className="h-full bg-gradient-to-r from-[#0B4EA2] to-[#4B91E2]" style={{ width: `${item.relativeWidth}%` }} /></div></div>)}</div> : <EmptyState>暂无可统计的知识点错误数据。</EmptyState>}
+        </Panel>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <Panel title="成绩分布">
+          <ChartBars items={analysis.scoreDistribution.map((item) => ({ label: item.label, value: item.count }))} />
+        </Panel>
+        <Panel title="错题 TOP5">
+          <ChartBars items={analysis.errorTypes.slice(0, 5).map((item) => ({ label: item.name, value: item.count }))} />
+        </Panel>
+        <Panel title="活跃学生排行">
+          <div className="space-y-3">{analysis.students.slice(0, 5).map((student, index) => <div key={student.key} className="flex items-center gap-3 border-b border-[#E7EBF1] pb-3 last:border-0"><span className="grid size-7 place-items-center bg-[#EAF2FC] text-xs font-bold text-[#0B4EA2]">{index + 1}</span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#0B2545]">{student.studentName}</span><span className="text-xs text-slate-500">{student.submissionCount} 次</span></div>)}</div>
         </Panel>
       </div>
 
@@ -78,6 +93,13 @@ function buildAnalysis(records: RecordItem[]) {
     lowestScore: scores.length ? Math.min(...scores) : null,
     errorCount: errorRecords.length,
     errorTypes: errorTypeCounts.slice(0, 8).map((item) => ({ ...item, rate: errorRecords.length ? Math.round((item.count / errorRecords.length) * 100) : 0 })),
+    scoreDistribution: [
+      { label: "0-59", count: scores.filter((score) => score < 60).length },
+      { label: "60-69", count: scores.filter((score) => score >= 60 && score < 70).length },
+      { label: "70-79", count: scores.filter((score) => score >= 70 && score < 80).length },
+      { label: "80-89", count: scores.filter((score) => score >= 80 && score < 90).length },
+      { label: "90-100", count: scores.filter((score) => score >= 90).length },
+    ],
     knowledgePoints: pointCounts.slice(0, 8).map((item) => ({ ...item, rate: errorRecords.length ? Math.round((item.count / errorRecords.length) * 100) : 0, relativeWidth: Math.round((item.count / maxPointCount) * 100) })),
     students: [...studentMap.values()].map((student) => ({ key: student.key, studentName: student.studentName, studentId: student.studentId, submissionCount: student.submissionCount, averageScore: student.scores.length ? student.scores.reduce((sum, score) => sum + score, 0) / student.scores.length : null, errorCount: student.errors.length, mainError: mostFrequent(student.errors), mainKnowledgePoint: mostFrequent(student.points) })).sort((a, b) => b.submissionCount - a.submissionCount),
   };
@@ -107,4 +129,9 @@ function ScoreMetric({ label, value, tone }: { label: string; value: number | nu
 
 function DetailMetric({ label, value }: { label: string; value: string }) {
   return <div><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold text-[#0B2545]">{value}</p></div>;
+}
+
+function ChartBars({ items }: { items: Array<{ label: string; value: number }> }) {
+  const max = Math.max(1, ...items.map((item) => item.value));
+  return items.length ? <div className="space-y-4">{items.map((item) => <div key={item.label}><div className="flex items-center justify-between text-xs"><span className="truncate text-slate-600">{item.label}</span><strong className="text-[#0B2545]">{item.value}</strong></div><div className="mt-2 h-2 bg-[#E7EBF1]"><div className="h-full bg-[#0B4EA2]" style={{ width: `${Math.round((item.value / max) * 100)}%` }} /></div></div>)}</div> : <EmptyState>暂无可展示数据。</EmptyState>;
 }
