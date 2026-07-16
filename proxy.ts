@@ -16,7 +16,7 @@ export async function proxy(request: NextRequest) {
     role: session?.role ?? null,
   });
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname === "/register") {
     if (!session) return NextResponse.next();
     return redirectToAppPath(request, session.role === "student" ? "/" : "/teacher");
   }
@@ -66,6 +66,7 @@ export const config = {
   matcher: [
     "/",
     "/login",
+    "/register",
     "/assistant/:path*",
     "/chat/:path*",
     "/errors/:path*",

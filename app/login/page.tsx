@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   BookOpenCheck,
@@ -83,6 +84,8 @@ export default function LoginPage() {
 
                 <button type="submit" disabled={loading} className="flex h-12 w-full items-center justify-center gap-2 bg-[#0B4EA2] text-sm font-semibold text-white shadow-sm transition hover:bg-[#163A70] focus:outline-none focus:ring-4 focus:ring-[#0B4EA2]/15 disabled:cursor-wait disabled:bg-slate-400">{loading ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}{loading ? "正在验证身份..." : `登录${role === "student" ? "学生端" : role === "teacher" ? "教师端" : "管理端"}`}</button>
               </form>
+
+              <p className="mt-4 text-center text-sm text-slate-500">还没有学生账号？ <Link href="/register" className="font-semibold text-[#0B4EA2] hover:underline">立即注册</Link></p>
 
               <div className="mt-5 border-t border-[#E7EBF1] pt-4 text-[11px] leading-5 text-slate-400"><p>Seed 账号使用邮箱登录；本地回退账号仍支持 student、teacher 与 admin。</p><p className="mt-1">部署时请设置独立 AUTH_SECRET，并替换所有演示密码。</p></div>
             </div>

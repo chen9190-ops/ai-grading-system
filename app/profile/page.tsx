@@ -15,6 +15,7 @@ import {
   Sparkles,
   Target,
   TrendingUp,
+  X,
 } from "lucide-react";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
@@ -29,11 +30,14 @@ type HistoryItem = {
 };
 
 const historyStorageKey = "ai-grading-history";
+type SettingPanel = "account" | "notifications" | "about";
 
 export default function ProfilePage() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [referenceTime, setReferenceTime] = useState(0);
+  const [activeSetting, setActiveSetting] = useState<SettingPanel | null>(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -47,7 +51,7 @@ export default function ProfilePage() {
 
   return (
     <MobileShell>
-      <MobileTopBar title="智能学习档案" showBack={false} rightAction={<button type="button" aria-label="设置" className="grid size-10 place-items-center rounded-full bg-white/75 text-slate-600 shadow-sm"><Settings className="size-5" /></button>} />
+      <MobileTopBar title="智能学习档案" showBack={false} rightAction={<button type="button" onClick={() => setActiveSetting("account")} aria-label="设置" className="grid size-10 place-items-center rounded-full bg-white/75 text-slate-600 shadow-sm"><Settings className="size-5" /></button>} />
 
       <div className="space-y-5 px-4 py-5">
         <section className="relative overflow-hidden rounded-[24px] border border-white/80 bg-white/80 p-5 shadow-[0_10px_28px_rgba(30,41,59,.09)] backdrop-blur-md">
@@ -95,12 +99,14 @@ export default function ProfilePage() {
         <section>
           <SectionTitle eyebrow="Settings" title="设置与平台" />
           <div className="overflow-hidden rounded-[24px] border border-white/80 bg-white/80 shadow-[0_8px_24px_rgba(30,41,59,.07)] backdrop-blur-md">
-            <SettingRow icon={<Settings className="size-[18px]" />} label="账号设置" />
-            <SettingRow icon={<Bell className="size-[18px]" />} label="通知设置" />
-            <SettingRow icon={<Info className="size-[18px]" />} label="关于平台" last />
+            <SettingRow icon={<Settings className="size-[18px]" />} label="账号设置" onClick={() => setActiveSetting("account")} />
+            <SettingRow icon={<Bell className="size-[18px]" />} label="通知设置" onClick={() => setActiveSetting("notifications")} />
+            <SettingRow icon={<Info className="size-[18px]" />} label="关于平台" onClick={() => setActiveSetting("about")} last />
           </div>
         </section>
       </div>
+
+      {activeSetting ? <SettingsDialog active={activeSetting} notificationsEnabled={notificationsEnabled} onNotificationsChange={setNotificationsEnabled} onClose={() => setActiveSetting(null)} /> : null}
     </MobileShell>
   );
 }
@@ -118,8 +124,13 @@ function AnalysisRow({ label, value, tone, last = false }: { label: string; valu
   return <div className={`grid grid-cols-[46px_1fr] gap-3 py-3 ${last ? "" : "border-b border-white/10"}`}><span className="flex items-center gap-1.5 text-[10px] text-slate-400"><span className={`size-1.5 rounded-full ${tones[tone]}`} />{label}</span><p className="text-xs leading-5 text-slate-200">{value}</p></div>;
 }
 
-function SettingRow({ icon, label, last = false }: { icon: React.ReactNode; label: string; last?: boolean }) {
-  return <button type="button" className={`flex w-full items-center gap-3 px-4 py-4 text-left active:bg-blue-50/60 ${last ? "" : "border-b border-slate-100"}`}><span className="grid size-9 place-items-center rounded-xl bg-slate-50 text-slate-500">{icon}</span><span className="flex-1 text-sm font-medium">{label}</span><ChevronRight className="size-4 text-slate-300" /></button>;
+function SettingRow({ icon, label, onClick, last = false }: { icon: React.ReactNode; label: string; onClick: () => void; last?: boolean }) {
+  return <button type="button" onClick={onClick} className={`flex w-full items-center gap-3 px-4 py-4 text-left active:bg-blue-50/60 ${last ? "" : "border-b border-slate-100"}`}><span className="grid size-9 place-items-center rounded-xl bg-slate-50 text-slate-500">{icon}</span><span className="flex-1 text-sm font-medium">{label}</span><ChevronRight className="size-4 text-slate-300" /></button>;
+}
+
+function SettingsDialog({ active, notificationsEnabled, onNotificationsChange, onClose }: { active: SettingPanel; notificationsEnabled: boolean; onNotificationsChange: (enabled: boolean) => void; onClose: () => void }) {
+  const titles = { account: "账号设置", notifications: "通知设置", about: "关于平台" };
+  return <div role="dialog" aria-modal="true" aria-label={titles[active]} className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-4 sm:items-center"><div className="w-full max-w-[398px] rounded-[24px] bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h2 className="text-lg font-bold">{titles[active]}</h2><button type="button" onClick={onClose} aria-label="关闭" className="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500"><X className="size-4" /></button></div>{active === "account" ? <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p className="font-semibold text-slate-800">学生账号资料</p><p className="mt-2">姓名、学号和专业信息与学校档案关联。如需修改，请联系平台管理员。</p></div> : null}{active === "notifications" ? <label className="mt-5 flex items-center justify-between rounded-2xl bg-slate-50 p-4"><span><strong className="block text-sm">学习提醒</strong><span className="mt-1 block text-xs text-slate-500">接收批改完成和学习计划提醒</span></span><input type="checkbox" checked={notificationsEnabled} onChange={(event) => onNotificationsChange(event.target.checked)} className="size-5 accent-blue-600" /></label> : null}{active === "about" ? <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600"><p className="font-semibold text-slate-800">航空航天智能教学平台</p><p className="mt-2">提供 AI 作业批改、力学答疑、个性化训练和学习分析服务。</p><p className="mt-2 text-xs text-slate-400">Version 1.0</p></div> : null}</div></div>;
 }
 
 function createLearningProfile(history: HistoryItem[]) {

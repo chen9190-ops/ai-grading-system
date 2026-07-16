@@ -41,9 +41,11 @@ export async function callDifyChatflow({
     throw new DifyChatflowError("Dify Chatflow URL 未配置");
   }
 
+  const chatflowUrl = normalizeChatflowUrl(url);
+
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(chatflowUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey.trim()}`,
@@ -80,6 +82,13 @@ export async function callDifyChatflow({
   }
 
   return parsed.answer;
+}
+
+function normalizeChatflowUrl(value: string) {
+  const normalized = value.trim().replace(/\/+$/, "");
+  return /\/chat-messages$/i.test(normalized)
+    ? normalized
+    : `${normalized}/chat-messages`;
 }
 
 export async function callDifyWorkflow({

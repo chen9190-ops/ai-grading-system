@@ -460,7 +460,7 @@ export default function Home() {
 
     try {
       const response = await fetch(
-        `/api/grade/history?id=${encodeURIComponent(item.workflowRunId)}`,
+        withBasePath(`/api/grade/history?id=${encodeURIComponent(item.workflowRunId)}`),
       );
       const data = await response.json();
 

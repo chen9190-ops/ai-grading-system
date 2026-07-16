@@ -49,6 +49,8 @@ export default function ImageCropper({
 
     try {
       const canvas = cropper.getCroppedCanvas({
+        maxWidth: 2400,
+        maxHeight: 2400,
         fillColor: "#ffffff",
         imageSmoothingEnabled: true,
         imageSmoothingQuality: "high",
@@ -92,7 +94,7 @@ export default function ImageCropper({
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B2545]/70 p-3 backdrop-blur-sm sm:p-5"
       role="dialog"
     >
-      <div className="flex h-[88vh] w-[92vw] min-w-[90vw] flex-col overflow-hidden border border-[#D8DEE8] bg-white shadow-2xl">
+      <div className="flex h-[min(88dvh,900px)] w-[min(94vw,960px)] min-w-0 flex-col overflow-hidden border border-[#D8DEE8] bg-white shadow-2xl">
         <div className="shrink-0 border-b-4 border-[#0B4EA2] bg-[#163A70] px-4 py-4 sm:px-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
@@ -111,7 +113,7 @@ export default function ImageCropper({
             ref={cropperRef}
             src={imageSrc}
             className="h-full w-full"
-            viewMode={0}
+            viewMode={1}
             dragMode="move"
             aspectRatio={NaN}
             autoCrop
@@ -122,7 +124,7 @@ export default function ImageCropper({
             highlight={false}
             responsive
             restore={false}
-            checkOrientation={false}
+            checkOrientation
             movable
             zoomable
             zoomOnWheel
@@ -130,8 +132,8 @@ export default function ImageCropper({
             scalable
             cropBoxMovable
             cropBoxResizable
-            minCropBoxWidth={100}
-            minCropBoxHeight={100}
+            minCropBoxWidth={48}
+            minCropBoxHeight={48}
             toggleDragModeOnDblclick={false}
             ready={handleReady}
           />
