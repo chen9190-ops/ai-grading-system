@@ -17,20 +17,34 @@ export async function authenticateApplicationUser(
 ): Promise<AppUser | null> {
   const normalizedUsername = username.trim().toLowerCase();
 
-  const databaseUser = await prisma.user.findFirst({
-    where: {
-      email: { equals: normalizedUsername, mode: "insensitive" },
-      role: prismaRoles[role],
-    },
-  });
+  try {
+    const databaseUser = await prisma.user.findFirst({
+      where: {
+        email: { equals: normalizedUsername, mode: "insensitive" },
+        role: prismaRoles[role],
+      },
+    });
 
-  if (databaseUser && await compare(password, databaseUser.password)) {
-    return {
-      id: databaseUser.id,
-      username: databaseUser.email,
-      displayName: databaseUser.name,
-      role,
-    };
+    console.info("Database login lookup completed", {
+      userFound: Boolean(databaseUser),
+      requestedRole: role,
+      roleMatched: databaseUser?.role === prismaRoles[role],
+    });
+
+    if (databaseUser) {
+      const passwordMatched = await compare(password, databaseUser.password);
+      console.info("Database login password verified", { passwordMatched });
+      if (!passwordMatched) return null;
+
+      return {
+        id: databaseUser.id,
+        username: databaseUser.email,
+        displayName: databaseUser.name,
+        role,
+      };
+    }
+  } catch (error) {
+    console.error("Database login lookup failed", error);
   }
 
   return authenticateConfiguredDemoUser(username, password, role);
@@ -45,7 +59,10 @@ async function authenticateConfiguredDemoUser(
   const configuredUsername = process.env[`${prefix}_USERNAME`]?.trim();
   const configuredPasswordHash = process.env[`${prefix}_PASSWORD_HASH`]?.trim();
   if (!configuredUsername || !configuredPasswordHash) return null;
-  if (username.trim() !== configuredUsername || !(await compare(password, configuredPasswordHash))) return null;
+  const usernameMatched = username.trim().toLowerCase() === configuredUsername.toLowerCase();
+  const passwordMatched = usernameMatched && await compare(password, configuredPasswordHash);
+  console.info("Configured login verified", { role, usernameMatched, passwordMatched });
+  if (!usernameMatched || !passwordMatched) return null;
 
   return {
     id: process.env[`${prefix}_USER_ID`]?.trim() || `${role}-demo`,
