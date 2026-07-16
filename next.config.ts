@@ -8,6 +8,7 @@ const basePath = process.env.NODE_ENV === "production"
 
 const nextConfig: NextConfig = {
   basePath,
+  skipTrailingSlashRedirect: process.env.NODE_ENV === "production",
   ...(deploymentId
     ? {
         deploymentId,

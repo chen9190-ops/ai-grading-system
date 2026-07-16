@@ -5,8 +5,16 @@ import { sessionCookieName, verifySessionToken, type UserRole } from "@/lib/auth
 const studentPaths = ["/", "/assistant", "/chat", "/errors", "/grading", "/practice", "/profile"];
 
 export async function proxy(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
-  const session = await verifySessionToken(request.cookies.get(sessionCookieName)?.value);
+  const pathname = normalizePathname(request.nextUrl.pathname);
+  const sessionCookie = request.cookies.get(sessionCookieName)?.value;
+  const session = await verifySessionToken(sessionCookie);
+
+  console.info("Auth proxy session check", {
+    pathname,
+    hasSessionCookie: Boolean(sessionCookie),
+    sessionVerified: Boolean(session),
+    role: session?.role ?? null,
+  });
 
   if (pathname === "/login") {
     if (!session) return NextResponse.next();
@@ -31,9 +39,13 @@ export async function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
+function normalizePathname(pathname: string) {
+  return pathname === "/" ? pathname : pathname.replace(/\/+$/, "");
+}
+
 function appUrl(request: NextRequest, pathname: string) {
   const appPath = pathname === "/" && request.nextUrl.basePath
-    ? request.nextUrl.basePath
+    ? `${request.nextUrl.basePath}/`
     : `${request.nextUrl.basePath}${pathname}`;
   return new URL(appPath, request.url);
 }
