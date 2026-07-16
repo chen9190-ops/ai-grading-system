@@ -11,6 +11,7 @@ import {
   Sparkles,
   Target,
 } from "lucide-react";
+import { withBasePath } from "@/lib/base-path";
 
 type SectionKey =
   | "classSummary"
@@ -42,7 +43,7 @@ export default function TeachingReportGenerator({
     setMessage("");
 
     try {
-      const response = await fetch("/api/report/generate", {
+      const response = await fetch(withBasePath("/api/report/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

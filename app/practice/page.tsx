@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
+import { withBasePath } from "@/lib/base-path";
 
 type HistoryItem = {
   id: string;
@@ -73,7 +74,7 @@ export default function PracticePage() {
     setPaper("");
 
     try {
-      const response = await fetch("/api/practice/generate", {
+      const response = await fetch(withBasePath("/api/practice/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),

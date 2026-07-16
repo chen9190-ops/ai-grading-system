@@ -12,6 +12,7 @@ import {
   Sigma,
   Sparkles,
 } from "lucide-react";
+import { withBasePath } from "@/lib/base-path";
 
 const capabilities = [
   { title: "知识问答", description: "专业课程问题解答", icon: MessagesSquare },
@@ -32,7 +33,7 @@ export default function AssistantPage() {
 
         <div className="space-y-6 px-4">
           <section className="relative min-h-[294px] overflow-hidden rounded-[28px] bg-[#09182b] text-white shadow-[0_18px_42px_rgba(15,23,42,.25)]">
-            <Image src="/assets/astronaut-ai-assistant.png" alt="穿白色宇航服、佩戴蓝色透明头盔的航空航天 AI 助手" fill priority sizes="(max-width: 430px) 100vw, 430px" className="object-cover object-[62%_34%] opacity-90" />
+            <Image src={withBasePath("/assets/astronaut-ai-assistant.png")} alt="穿白色宇航服、佩戴蓝色透明头盔的航空航天 AI 助手" fill priority sizes="(max-width: 430px) 100vw, 430px" className="object-cover object-[62%_34%] opacity-90" />
             <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(5,15,29,.98)_0%,rgba(5,15,29,.84)_42%,rgba(5,15,29,.12)_78%),linear-gradient(0deg,rgba(5,15,29,.72),transparent_55%)]" />
             <div className="relative flex min-h-[294px] max-w-[68%] flex-col p-5">
               <div className="flex items-center gap-2 text-[10px] text-blue-200"><span className="relative flex size-2"><span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-70" /><span className="relative size-2 rounded-full bg-blue-400" /></span>AI 助教在线</div>

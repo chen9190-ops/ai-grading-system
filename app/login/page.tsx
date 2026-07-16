@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import type { UserRole } from "@/lib/auth";
+import { withBasePath } from "@/lib/base-path";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,7 +32,7 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch(withBasePath("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password, role: role.toUpperCase() }),
@@ -59,7 +60,7 @@ export default function LoginPage() {
     <main className="min-h-screen bg-[#E7EBF1] text-[#17243a]">
       <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.05fr)_minmax(480px,.95fr)]">
         <section className="relative hidden overflow-hidden bg-[#07162A] lg:block">
-          <Image src="/assets/astronaut-ai-assistant.png" alt="航空航天智能教学平台" fill priority sizes="55vw" className="object-cover object-[58%_35%] opacity-70" />
+          <Image src={withBasePath("/assets/astronaut-ai-assistant.png")} alt="航空航天智能教学平台" fill priority sizes="55vw" className="object-cover object-[58%_35%] opacity-70" />
           <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(4,15,29,.35),rgba(4,15,29,.68)),linear-gradient(0deg,rgba(4,15,29,.96),transparent_70%)]" />
           <div className="relative flex h-full flex-col justify-between p-10 xl:p-14"><div><div className="grid size-14 place-items-center border border-blue-300/25 bg-blue-400/15 text-sm font-bold text-white backdrop-blur-md">HUST</div><p className="mt-6 text-xs font-semibold uppercase tracking-[.2em] text-blue-300">Aerospace Intelligent Education</p><h1 className="mt-3 max-w-xl text-4xl font-semibold leading-tight text-white xl:text-5xl">航空航天<br />智能教学平台</h1><p className="mt-5 max-w-lg text-sm leading-7 text-slate-300">面向航空航天学院学生与教师的 AI 批改、学情分析和个性化训练平台。</p></div><div className="grid max-w-xl grid-cols-3 gap-px overflow-hidden border border-white/10 bg-white/10">{[[BookOpenCheck,"智能批改"],[Users,"学情分析"],[ShieldCheck,"角色权限"]].map(([Icon,label]) => { const FeatureIcon = Icon as typeof BookOpenCheck; return <div key={label as string} className="bg-[#07162A]/70 p-4 text-white backdrop-blur-md"><FeatureIcon className="size-5 text-blue-300" /><p className="mt-2 text-xs">{label as string}</p></div>; })}</div></div>
         </section>

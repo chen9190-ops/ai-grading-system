@@ -10,7 +10,7 @@ export async function proxy(request: NextRequest) {
 
   if (pathname === "/login") {
     if (!session) return NextResponse.next();
-    return NextResponse.redirect(new URL(session.role === "student" ? "/" : "/teacher", request.url));
+    return redirectToAppPath(request, session.role === "student" ? "/" : "/teacher");
   }
 
   const requiredRole = getRequiredRole(pathname);
@@ -18,17 +18,25 @@ export async function proxy(request: NextRequest) {
 
   if (!session) {
     if (pathname.startsWith("/api/")) return Response.json({ error: "未登录" }, { status: 401 });
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = appUrl(request, "/login");
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   if (session.role !== "admin" && session.role !== requiredRole) {
     if (pathname.startsWith("/api/")) return Response.json({ error: "无权访问" }, { status: 403 });
-    return NextResponse.redirect(new URL(session.role === "student" ? "/" : "/teacher", request.url));
+    return redirectToAppPath(request, session.role === "student" ? "/" : "/teacher");
   }
 
   return NextResponse.next();
+}
+
+function appUrl(request: NextRequest, pathname: string) {
+  return new URL(`${request.nextUrl.basePath}${pathname}`, request.url);
+}
+
+function redirectToAppPath(request: NextRequest, pathname: string) {
+  return NextResponse.redirect(appUrl(request, pathname));
 }
 
 function getRequiredRole(pathname: string): UserRole | null {

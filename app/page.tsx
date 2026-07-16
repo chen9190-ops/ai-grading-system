@@ -19,6 +19,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+import { withBasePath } from "@/lib/base-path";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -321,7 +322,7 @@ export default function Home() {
     let latestWorkflowRunId = "";
 
     try {
-      const response = await fetch("/api/grade", {
+      const response = await fetch(withBasePath("/api/grade"), {
         method: "POST",
         body: formData,
       });
@@ -1208,7 +1209,7 @@ async function saveSubmission(input: {
   };
 
   try {
-    const response = await fetch("/api/submissions", {
+    const response = await fetch(withBasePath("/api/submissions"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

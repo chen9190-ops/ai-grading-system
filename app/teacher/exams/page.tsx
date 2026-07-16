@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { BookOpenCheck, LoaderCircle, Sparkles } from "lucide-react";
 import { PageHeading, Panel } from "../components";
+import { withBasePath } from "@/lib/base-path";
 
 const courses = ["理论力学", "材料力学", "空气动力学"];
 const inputClass = "h-11 w-full border border-[#B9C4D4] bg-white px-3 text-sm outline-none focus:border-[#0B4EA2] focus:ring-4 focus:ring-[#0B4EA2]/10";
@@ -20,7 +21,7 @@ export default function TeacherExamPage() {
     const form = new FormData(event.currentTarget);
 
     try {
-      const response = await fetch("/api/exam/generate", {
+      const response = await fetch(withBasePath("/api/exam/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
