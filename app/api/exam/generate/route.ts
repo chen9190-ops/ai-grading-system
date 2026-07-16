@@ -61,7 +61,10 @@ async function readInput(request: Request) {
 function parseExamPaper(value: string) {
   try {
     const normalized = value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    const parsed: unknown = JSON.parse(normalized);
+    const jsonStart = normalized.indexOf("{");
+    const jsonEnd = normalized.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd <= jsonStart) return null;
+    const parsed: unknown = JSON.parse(normalized.slice(jsonStart, jsonEnd + 1));
     if (!isRecord(parsed)) return null;
     const questions = parsed.questions;
     const answers = parsed.answers ?? parsed.answer;

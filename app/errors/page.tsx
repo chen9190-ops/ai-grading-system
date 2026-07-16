@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
+import { withBasePath } from "@/lib/base-path";
 import {
   AlertCircle,
   BookOpen,
@@ -132,7 +133,7 @@ export default function ErrorsPage() {
     if (!group.latest.workflowRunId) return;
 
     try {
-      const response = await fetch(`/api/grade/history?id=${encodeURIComponent(group.latest.workflowRunId)}`);
+      const response = await fetch(withBasePath(`/api/grade/history?id=${encodeURIComponent(group.latest.workflowRunId)}`));
       const payload = await response.json();
       if (!response.ok || typeof payload?.result !== "string") throw new Error("unavailable");
       setDetail({ report: payload.result, loading: false, error: "" });

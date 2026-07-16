@@ -119,6 +119,21 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    void fetch(withBasePath("/api/auth/me"), { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload: unknown) => {
+        if (!active || !isRecord(payload) || !isRecord(payload.data)) return;
+        const profile = isRecord(payload.data.studentProfile) ? payload.data.studentProfile : null;
+        if (typeof payload.data.name === "string") setStudentName(payload.data.name);
+        if (profile && typeof profile.studentId === "string") setStudentId(profile.studentId);
+        if (profile && typeof profile.className === "string") setClassName(profile.className);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   const completedStepCount = workflowSteps.filter(
     (step) => step.status === "done",
   ).length;
@@ -509,7 +524,7 @@ export default function Home() {
                 <CircleUserRound className="size-8" strokeWidth={1.5} />
               </div>
               <div>
-                <p className="text-lg font-bold tracking-tight">你好，张同学</p>
+                <p className="text-lg font-bold tracking-tight">你好，{studentName === "匿名学生" ? "同学" : studentName}</p>
                 <p className="mt-0.5 text-xs text-slate-500">航空航天学院</p>
               </div>
             </div>
@@ -1267,6 +1282,10 @@ function saveHistorySafely(history: GradeHistoryItem[]) {
   }
 
   return [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {

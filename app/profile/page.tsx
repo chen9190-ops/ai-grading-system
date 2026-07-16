@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
+import { withBasePath } from "@/lib/base-path";
 
 type HistoryItem = {
   id: string;
@@ -38,6 +39,7 @@ export default function ProfilePage() {
   const [referenceTime, setReferenceTime] = useState(0);
   const [activeSetting, setActiveSetting] = useState<SettingPanel | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [account, setAccount] = useState({ name: "同学", major: "专业信息未设置" });
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -45,6 +47,22 @@ export default function ProfilePage() {
       setReferenceTime(Date.now());
       setLoaded(true);
     });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetch(withBasePath("/api/auth/me"), { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload: unknown) => {
+        if (!active || !isRecord(payload) || !isRecord(payload.data)) return;
+        const profile = isRecord(payload.data.studentProfile) ? payload.data.studentProfile : null;
+        setAccount({
+          name: typeof payload.data.name === "string" ? payload.data.name : "同学",
+          major: profile && typeof profile.major === "string" ? profile.major : "专业信息未设置",
+        });
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
   }, []);
 
   const profile = useMemo(() => createLearningProfile(history), [history]);
@@ -58,7 +76,7 @@ export default function ProfilePage() {
           <div className="absolute -right-12 -top-14 size-36 rounded-full bg-blue-100/50 blur-xl" />
           <div className="relative flex items-center gap-4">
             <div className="grid size-[70px] shrink-0 place-items-center rounded-full border-[3px] border-white bg-gradient-to-br from-[#34475f] to-[#0b1728] text-white shadow-[0_8px_20px_rgba(15,23,42,.2)]"><CircleUserRound className="size-10" strokeWidth={1.5} /></div>
-            <div className="min-w-0"><h1 className="text-xl font-bold">张同学</h1><p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><GraduationCap className="size-4 text-blue-600" />航空航天学院</p><p className="mt-1.5 text-[11px] text-slate-400">飞行器设计与工程</p></div>
+            <div className="min-w-0"><h1 className="text-xl font-bold">{account.name}</h1><p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><GraduationCap className="size-4 text-blue-600" />航空航天学院</p><p className="mt-1.5 text-[11px] text-slate-400">{account.major}</p></div>
           </div>
           <div className="relative mt-5 flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50/75 px-3 py-2.5"><span className="grid size-7 place-items-center rounded-full bg-blue-600 text-white"><CheckCircle2 className="size-4" /></span><div><p className="text-[9px] text-slate-400">学习状态</p><p className="mt-0.5 text-xs font-semibold text-blue-700">AI学习档案已建立</p></div><span className="ml-auto size-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,.1)]" /></div>
         </section>
@@ -203,4 +221,8 @@ function formatRelativeDay(value: string, referenceTime: number) {
 
 function formatTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

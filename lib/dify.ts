@@ -104,9 +104,11 @@ export async function callDifyWorkflow({
     throw new DifyChatflowError("Dify Workflow URL 未配置");
   }
 
+  const workflowUrl = normalizeWorkflowUrl(url);
+
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(workflowUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey.trim()}`,
@@ -146,7 +148,19 @@ function parseChatflowResponse(value: unknown): DifyChatflowResponse | null {
   if (!isRecord(value) || typeof value.answer !== "string" || !value.answer.trim()) {
     return null;
   }
-  return { answer: value.answer.trim() };
+  const answer = stripThinking(value.answer);
+  return answer ? { answer } : null;
+}
+
+function normalizeWorkflowUrl(value: string) {
+  const normalized = value.trim().replace(/\/+$/, "");
+  return /\/workflows\/run$/i.test(normalized)
+    ? normalized
+    : `${normalized}/workflows/run`;
+}
+
+function stripThinking(value: string) {
+  return value.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
 function extractError(value: unknown): string {

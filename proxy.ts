@@ -25,14 +25,14 @@ export async function proxy(request: NextRequest) {
   if (!requiredRole) return NextResponse.next();
 
   if (!session) {
-    if (pathname.startsWith("/api/")) return Response.json({ error: "未登录" }, { status: 401 });
+    if (pathname.startsWith("/api/")) return Response.json({ success: false, data: null, error: "未登录" }, { status: 401 });
     const loginUrl = appUrl(request, "/login");
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   if (session.role !== "admin" && session.role !== requiredRole) {
-    if (pathname.startsWith("/api/")) return Response.json({ error: "无权访问" }, { status: 403 });
+    if (pathname.startsWith("/api/")) return Response.json({ success: false, data: null, error: "无权访问" }, { status: 403 });
     return redirectToAppPath(request, session.role === "student" ? "/" : "/teacher");
   }
 
