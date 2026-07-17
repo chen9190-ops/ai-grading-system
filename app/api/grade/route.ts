@@ -7,40 +7,69 @@ const difyUser = "ai-grading-system";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const publicStreamErrorMessage = "AI分析超时或服务繁忙，请重试";
+const responsePreviewLength = 500;
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
   const apiKey = process.env.DIFY_API_KEY;
   const baseUrl = process.env.DIFY_BASE_URL;
 
+  logInfo(requestId, "submission received", {
+    method: request.method,
+    pathname: new URL(request.url).pathname,
+    contentType: request.headers.get("content-type"),
+    contentLength: request.headers.get("content-length"),
+  });
+
   if (!apiKey || !baseUrl) {
+    logError(requestId, "Dify configuration missing");
     return Response.json(
       { error: "Missing DIFY_API_KEY or DIFY_BASE_URL" },
-      { status: 500 },
+      { status: 500, headers: requestIdHeaders(requestId) },
     );
   }
 
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch (error) {
+    logError(requestId, "submission form data parse failed", errorDetails(error));
+    return Response.json(
+      { error: "Invalid multipart form data" },
+      { status: 400, headers: requestIdHeaders(requestId) },
+    );
+  }
   const problemImage = formData.get("problem_image");
   const answerImage = formData.get("answer_image");
 
+  logInfo(requestId, "submission files received", {
+    problemImage: fileDetails(problemImage),
+    answerImage: fileDetails(answerImage),
+  });
+
   if (!isValidImage(problemImage) || !isValidImage(answerImage)) {
+    logError(requestId, "submission image validation failed", {
+      problemImage: fileDetails(problemImage),
+      answerImage: fileDetails(answerImage),
+    });
     return Response.json(
       { error: "problem_image and answer_image must be JPG, JPEG, or PNG files" },
-      { status: 400 },
+      { status: 400, headers: requestIdHeaders(requestId) },
     );
   }
 
   try {
-    return streamDifyWorkflow(baseUrl.replace(/\/$/, ""), apiKey, {
+    return streamDifyWorkflow(baseUrl.replace(/\/$/, ""), apiKey, requestId, {
       problemImage,
       answerImage,
     });
-  } catch {
+  } catch (error) {
+    logError(requestId, "grade stream creation failed", errorDetails(error));
     return Response.json(
       {
         error: publicStreamErrorMessage,
       },
-      { status: 502 },
+      { status: 502, headers: requestIdHeaders(requestId) },
     );
   }
 }
@@ -52,6 +81,7 @@ function isValidImage(value: FormDataEntryValue | null): value is File {
 function streamDifyWorkflow(
   baseUrl: string,
   apiKey: string,
+  requestId: string,
   files: {
     problemImage: File;
     answerImage: File;
@@ -61,10 +91,10 @@ function streamDifyWorkflow(
     async start(controller) {
       try {
         const [problemFile, answerFile] = await Promise.all([
-          uploadFileToDify(baseUrl, apiKey, files.problemImage),
-          uploadFileToDify(baseUrl, apiKey, files.answerImage),
+          uploadFileToDify(baseUrl, apiKey, requestId, "problem_image", files.problemImage),
+          uploadFileToDify(baseUrl, apiKey, requestId, "answer_image", files.answerImage),
         ]);
-        const difyResponse = await runDifyWorkflowStream(baseUrl, apiKey, {
+        const difyResponse = await runDifyWorkflowStream(baseUrl, apiKey, requestId, {
           problemFileId: problemFile.id,
           answerFileId: answerFile.id,
         });
@@ -73,8 +103,9 @@ function streamDifyWorkflow(
           throw new Error("Empty Dify stream");
         }
 
-        await forwardDifySse(difyResponse.body, controller);
-      } catch {
+        await forwardDifySse(difyResponse.body, controller, requestId);
+      } catch (error) {
+        logError(requestId, "Dify request chain failed", errorDetails(error));
         controller.enqueue(
           textEncoder.encode(
             `event: error\ndata: ${JSON.stringify({
@@ -94,6 +125,7 @@ function streamDifyWorkflow(
       Connection: "keep-alive",
       "Content-Type": "text/event-stream; charset=utf-8",
       "X-Accel-Buffering": "no",
+      ...requestIdHeaders(requestId),
     },
   });
 }
@@ -101,11 +133,19 @@ function streamDifyWorkflow(
 async function uploadFileToDify(
   baseUrl: string,
   apiKey: string,
+  requestId: string,
+  field: "problem_image" | "answer_image",
   file: File,
 ): Promise<DifyUploadedFile> {
   const body = new FormData();
   body.append("file", file);
   body.append("user", difyUser);
+
+  logInfo(requestId, "Dify file upload started", {
+    field,
+    size: file.size,
+    mimeType: file.type,
+  });
 
   const response = await fetch(`${baseUrl}/files/upload`, {
     method: "POST",
@@ -116,6 +156,11 @@ async function uploadFileToDify(
   });
 
   const data = await readJson(response);
+  logInfo(requestId, "Dify file upload returned", {
+    field,
+    status: response.status,
+    responsePreview: safePreview(data),
+  });
 
   if (!response.ok) {
     throw new Error(getDifyErrorMessage("Dify file upload failed", data));
@@ -131,11 +176,13 @@ async function uploadFileToDify(
 async function runDifyWorkflowStream(
   baseUrl: string,
   apiKey: string,
+  requestId: string,
   fileIds: {
     problemFileId: string;
     answerFileId: string;
   },
 ): Promise<Response> {
+  logInfo(requestId, "Dify workflow request started");
   const response = await fetch(`${baseUrl}/workflows/run`, {
     method: "POST",
     headers: {
@@ -160,8 +207,13 @@ async function runDifyWorkflowStream(
     }),
   });
 
+  logInfo(requestId, "Dify workflow returned", { status: response.status });
+
   if (!response.ok) {
     const data = await readJson(response);
+    logInfo(requestId, "Dify workflow response preview", {
+      responsePreview: safePreview(data),
+    });
     throw new Error(getDifyErrorMessage("Dify workflow run failed", data));
   }
 
@@ -171,29 +223,76 @@ async function runDifyWorkflowStream(
 async function forwardDifySse(
   body: ReadableStream<Uint8Array>,
   controller: ReadableStreamDefaultController,
+  requestId: string,
 ) {
   const reader = body.getReader();
   let buffer = "";
+  let responsePreview = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
 
-    if (done) {
-      break;
+      if (done) {
+        break;
+      }
+
+      const decodedChunk = textDecoder.decode(value, { stream: true });
+      if (responsePreview.length < responsePreviewLength) {
+        responsePreview += decodedChunk.slice(0, responsePreviewLength - responsePreview.length);
+      }
+      buffer += decodedChunk;
+      const events = buffer.split(/\n\n/);
+      buffer = events.pop() ?? "";
+
+      for (const eventText of events) {
+        controller.enqueue(textEncoder.encode(transformDifyEvent(eventText)));
+      }
     }
 
-    buffer += textDecoder.decode(value, { stream: true });
-    const events = buffer.split(/\n\n/);
-    buffer = events.pop() ?? "";
-
-    for (const eventText of events) {
-      controller.enqueue(textEncoder.encode(transformDifyEvent(eventText)));
+    if (buffer.trim()) {
+      controller.enqueue(textEncoder.encode(transformDifyEvent(buffer)));
     }
+  } finally {
+    logInfo(requestId, "Dify workflow response preview", {
+      responsePreview: redactSecrets(responsePreview),
+    });
   }
+}
 
-  if (buffer.trim()) {
-    controller.enqueue(textEncoder.encode(transformDifyEvent(buffer)));
-  }
+function requestIdHeaders(requestId: string) {
+  return { "X-Grading-Request-Id": requestId };
+}
+
+function fileDetails(value: FormDataEntryValue | null) {
+  return value instanceof File
+    ? { present: true, size: value.size, mimeType: value.type }
+    : { present: false, valueType: value === null ? "null" : typeof value };
+}
+
+function safePreview(value: unknown) {
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  return redactSecrets((serialized || "").slice(0, responsePreviewLength));
+}
+
+function redactSecrets(value: string) {
+  return value
+    .replace(/(authorization["'\s:]*)bearer\s+[^\s"']+/gi, "$1[REDACTED]")
+    .replace(/((?:api[_-]?key|token|secret)["'\s:=]+)[^\s,"'}]+/gi, "$1[REDACTED]");
+}
+
+function errorDetails(error: unknown) {
+  return error instanceof Error
+    ? { name: error.name, message: redactSecrets(error.message) }
+    : { message: redactSecrets(String(error)) };
+}
+
+function logInfo(requestId: string, message: string, details?: unknown) {
+  console.info(`[grading][api][${requestId}] ${message}`, details ?? "");
+}
+
+function logError(requestId: string, message: string, details?: unknown) {
+  console.error(`[grading][api][${requestId}] ${message}`, details ?? "");
 }
 
 function transformDifyEvent(eventText: string) {

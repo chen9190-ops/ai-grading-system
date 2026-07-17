@@ -349,6 +349,19 @@ export default function Home() {
     const formData = new FormData();
     formData.append("problem_image", questionUpload.file);
     formData.append("answer_image", answerUpload.file);
+    const gradeRequestUrl = withBasePath("/api/grade");
+
+    console.info("[grading][client] grade button clicked", {
+      requestUrl: gradeRequestUrl,
+      problemImage: {
+        size: questionUpload.file.size,
+        type: questionUpload.file.type,
+      },
+      answerImage: {
+        size: answerUpload.file.size,
+        type: answerUpload.file.type,
+      },
+    });
 
     setIsGrading(true);
     setHasWorkflowEvent(false);
@@ -358,9 +371,15 @@ export default function Home() {
     let latestWorkflowRunId = "";
 
     try {
-      const response = await fetch(withBasePath("/api/grade"), {
+      const response = await fetch(gradeRequestUrl, {
         method: "POST",
         body: formData,
+      });
+
+      console.info("[grading][client] grade response received", {
+        requestUrl: gradeRequestUrl,
+        status: response.status,
+        requestId: response.headers.get("x-grading-request-id"),
       });
 
       if (!response.ok) {
@@ -463,7 +482,12 @@ export default function Home() {
         ]) ?? "",
       });
       router.push("/grading");
-    } catch {
+    } catch (error) {
+      console.error("[grading][client] grade request failed", {
+        requestUrl: gradeRequestUrl,
+        name: error instanceof Error ? error.name : "UnknownError",
+        message: error instanceof Error ? error.message : String(error),
+      });
       setStatus("批改失败");
       setResult("AI分析超时或服务繁忙，请重试");
     } finally {
