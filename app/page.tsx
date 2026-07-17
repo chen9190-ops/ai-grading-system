@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import {
   Bell,
   BookOpen,
-  Bot,
   Camera,
   ChevronRight,
   CircleUserRound,
@@ -57,45 +56,12 @@ type GradeHistoryItem = {
   resultPreview: string;
   score?: string;
 };
-type WorkflowStepKey =
-  | "user_input"
-  | "problem_recognition"
-  | "answer_recognition"
-  | "knowledge_retrieval"
-  | "knowledge_available"
-  | "branch"
-  | "standard_solution"
-  | "grading"
-  | "output";
-type WorkflowStepStatus = "idle" | "running" | "done";
-type WorkflowStep = {
-  key: WorkflowStepKey;
-  label: string;
-  status: WorkflowStepStatus;
-};
-
 const allowedImageTypes = new Set(["image/jpeg", "image/jpg", "image/png"]);
 const allowedImageNamePattern = /\.(?:jpe?g|png)$/i;
 const historyStorageKey = "ai-grading-history";
 const gradingResultStorageKey = "ai-grading-current-result";
 const maxHistoryItems = 10;
 const incompleteCropHint = "请先完成题目图片和学生答案图片裁剪。";
-const workflowStepDefinitions: Array<Omit<WorkflowStep, "status">> = [
-  { key: "user_input", label: "用户输入" },
-  { key: "problem_recognition", label: "题目识别" },
-  { key: "answer_recognition", label: "答案识别" },
-  { key: "knowledge_retrieval", label: "知识检索" },
-  { key: "knowledge_available", label: "知识库可用性判断" },
-  { key: "branch", label: "DIRECT / REFERENCE / NONE 分支" },
-  { key: "standard_solution", label: "标准解生成" },
-  { key: "grading", label: "批改" },
-  { key: "output", label: "输出" },
-];
-
-function createWorkflowSteps(): WorkflowStep[] {
-  return workflowStepDefinitions.map((step) => ({ ...step, status: "idle" }));
-}
-
 export default function Home() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
@@ -107,9 +73,6 @@ export default function Home() {
   const [status, setStatus] = useState("等待上传题目与学生答案");
   const [, setResult] = useState("");
   const [isGrading, setIsGrading] = useState(false);
-  const [hasWorkflowEvent, setHasWorkflowEvent] = useState(false);
-  const [workflowSteps, setWorkflowSteps] =
-    useState<WorkflowStep[]>(createWorkflowSteps);
   const [history, setHistory] = useState<GradeHistoryItem[]>([]);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [studentName, setStudentName] = useState("匿名学生");
@@ -162,43 +125,11 @@ export default function Home() {
     return () => { active = false; };
   }, []);
 
-  const completedStepCount = workflowSteps.filter(
-    (step) => step.status === "done",
-  ).length;
-  const progressPercent = Math.round(
-    (completedStepCount / workflowSteps.length) * 100,
-  );
   const averageScoreProgress = scoreProgress(learningStats.averageScore);
 
   const isReadyToGrade = Boolean(
     questionUpload?.file && answerUpload?.file && !questionDraft && !answerDraft,
   );
-  const reportProgressSteps = useMemo(
-    () => [
-      {
-        label: "正在上传图片",
-        status: hasWorkflowEvent
-          ? "done"
-          : isGrading
-            ? "running"
-            : ("idle" as WorkflowStepStatus),
-      },
-      {
-        label: "正在识别题目",
-        status: getWorkflowStatus(workflowSteps, "problem_recognition"),
-      },
-      {
-        label: "正在识别学生答案",
-        status: getWorkflowStatus(workflowSteps, "answer_recognition"),
-      },
-      {
-        label: "正在生成批改报告",
-        status: getReportGenerationStatus(workflowSteps, isGrading),
-      },
-    ],
-    [hasWorkflowEvent, isGrading, workflowSteps],
-  );
-
   const uploadItems = useMemo(
     () => [
       {
@@ -375,10 +306,8 @@ export default function Home() {
     });
 
       setIsGrading(true);
-      setHasWorkflowEvent(false);
       setStatus("正在调用 Dify 工作流...");
       setResult("");
-      setWorkflowSteps(createWorkflowSteps());
       let latestWorkflowRunId = "";
 
       const response = await fetch(gradeRequestUrl, {
@@ -403,25 +332,15 @@ export default function Home() {
 
       const nextResult = await readWorkflowStream(response.body, {
         onNodeStarted: (payload) => {
-          setHasWorkflowEvent(true);
-          const stepKey = matchWorkflowStep(payload);
-
-          if (stepKey) {
-            setWorkflowSteps((currentSteps) =>
-              updateWorkflowStep(currentSteps, stepKey, "running"),
-            );
-            setStatus(`${getWorkflowStepLabel(stepKey)}进行中`);
+          const stepLabel = matchWorkflowStepLabel(payload);
+          if (stepLabel) {
+            setStatus(`${stepLabel}进行中`);
           }
         },
         onNodeFinished: (payload) => {
-          setHasWorkflowEvent(true);
-          const stepKey = matchWorkflowStep(payload);
-
-          if (stepKey) {
-            setWorkflowSteps((currentSteps) =>
-              updateWorkflowStep(currentSteps, stepKey, "done"),
-            );
-            setStatus(`${getWorkflowStepLabel(stepKey)}已完成`);
+          const stepLabel = matchWorkflowStepLabel(payload);
+          if (stepLabel) {
+            setStatus(`${stepLabel}已完成`);
           }
         },
         onWorkflowFinished: (payload) => {
@@ -431,10 +350,6 @@ export default function Home() {
             throw new Error(`未能读取 AI 批改正文，请使用 requestId ${gradingRequestId || "unknown"} 联系管理员。`);
           }
           const workflowResult = normalizeReportMarkdown(selectedReport.markdown);
-          setHasWorkflowEvent(true);
-          setWorkflowSteps((currentSteps) =>
-            currentSteps.map((step) => ({ ...step, status: "done" })),
-          );
           setStatus("批改完成");
           setResult(workflowResult);
         },
@@ -445,10 +360,6 @@ export default function Home() {
       const createdAt = new Date().toISOString();
       setStatus("批改完成");
       setResult(normalizedResult);
-      setHasWorkflowEvent(true);
-      setWorkflowSteps((currentSteps) =>
-        currentSteps.map((step) => ({ ...step, status: "done" })),
-      );
       addHistoryItem({
         id: safeRandomId("grading"),
         createdAt,
@@ -709,11 +620,9 @@ export default function Home() {
             </details>
 
             <div className="mt-3 rounded-2xl border border-white/45 bg-slate-200/55 p-3">
-              <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-xs font-medium text-slate-700">{status}</p><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-300/80"><div className="h-full rounded-full bg-[#5f7f9d] transition-[width]" style={{ width: `${progressPercent}%` }} /></div></div><button type="button" onClick={startGrading} disabled={isGrading || !isReadyToGrade} className="shrink-0 rounded-xl bg-[#496983] px-4 py-3 text-xs font-semibold text-white shadow-[0_5px_14px_rgba(51,65,85,.2)] transition active:bg-[#3d5b73] disabled:bg-slate-300">{isGrading ? 'AI解析中...' : '开始AI批改'}</button></div>
+              <div className="flex items-center justify-between gap-3"><p className="min-w-0 truncate text-xs font-medium text-slate-700">{status}</p><button type="button" onClick={startGrading} disabled={isGrading || !isReadyToGrade} className="shrink-0 rounded-xl bg-[#496983] px-4 py-3 text-xs font-semibold text-white shadow-[0_5px_14px_rgba(51,65,85,.2)] transition active:bg-[#3d5b73] disabled:bg-slate-300">{isGrading ? 'AI解析中...' : '开始AI批改'}</button></div>
             </div>
           </section>
-
-          {isGrading ? <section className="rounded-[24px] bg-white p-4 shadow-[0_8px_24px_rgba(30,41,59,.08)]"><div className="mb-4 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-blue-600 text-white"><Bot className="size-5" /></div><div><h2 className="text-sm font-bold">AI 正在解析</h2><p className="text-[10px] text-slate-500">完成后将自动进入批改结果页</p></div></div><ReportProgress progressPercent={progressPercent} steps={reportProgressSteps} /></section> : null}
 
           <section>
             <div className="mb-3 flex items-center justify-between px-1"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">History</p><h2 className="mt-0.5 text-lg font-bold">最近解析</h2></div><button type="button" onClick={() => setIsHistoryDrawerOpen(true)} className="flex items-center text-xs font-medium text-slate-500">查看全部 <ChevronRight className="size-4" /></button></div>
@@ -828,65 +737,6 @@ export default function Home() {
   );
 }
 
-function ReportProgress({
-  progressPercent,
-  steps,
-}: {
-  progressPercent: number;
-  steps: Array<{ label: string; status: WorkflowStepStatus }>;
-}) {
-  return (
-    <div className="mx-auto max-w-4xl border border-[#D8DEE8] bg-[#F8FAFD] p-5 shadow-sm sm:p-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#0B4EA2]">
-            Workflow Progress
-          </p>
-          <h3 className="mt-1 text-base font-semibold text-[#0B2545]">
-            Dify 工作流实时进度
-          </h3>
-        </div>
-        <span className="text-sm font-semibold text-[#163A70]">
-          {progressPercent}%
-        </span>
-      </div>
-
-      <div className="mt-4 h-2 overflow-hidden border border-[#D8DEE8] bg-white">
-        <div
-          className="h-full bg-[#0B4EA2] transition-[width] duration-300"
-          style={{ width: `${progressPercent}%` }}
-        />
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {steps.map((step) => (
-          <div
-            key={step.label}
-            className="flex items-center justify-between border border-[#D8DEE8] bg-white px-3 py-2 text-sm"
-          >
-            <span className="font-medium text-[#0B2545]">{step.label}</span>
-            <span
-              className={`font-semibold ${
-                step.status === "done"
-                  ? "text-emerald-600"
-                  : step.status === "running"
-                    ? "text-[#0B4EA2]"
-                    : "text-slate-400"
-              }`}
-            >
-              {step.status === "done"
-                ? "已完成"
-                : step.status === "running"
-                  ? "进行中"
-                  : "等待中"}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function StudentField({
   label,
   value,
@@ -911,44 +761,6 @@ function StudentField({
       />
     </label>
   );
-}
-
-function getWorkflowStatus(
-  steps: WorkflowStep[],
-  key: WorkflowStepKey,
-): WorkflowStepStatus {
-  return steps.find((step) => step.key === key)?.status ?? "idle";
-}
-
-function getReportGenerationStatus(
-  steps: WorkflowStep[],
-  isGrading: boolean,
-): WorkflowStepStatus {
-  const reportStepKeys: WorkflowStepKey[] = [
-    "knowledge_retrieval",
-    "knowledge_available",
-    "branch",
-    "standard_solution",
-    "grading",
-    "output",
-  ];
-  const reportSteps = steps.filter((step) => reportStepKeys.includes(step.key));
-
-  if (reportSteps.every((step) => step.status === "done")) {
-    return "done";
-  }
-
-  if (reportSteps.some((step) => step.status === "running")) {
-    return "running";
-  }
-
-  const answerStep = steps.find((step) => step.key === "answer_recognition");
-
-  if (isGrading && answerStep?.status === "done") {
-    return "running";
-  }
-
-  return "idle";
 }
 
 async function readWorkflowStream(
@@ -1291,7 +1103,7 @@ function formatRecentDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
-function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {
+function matchWorkflowStepLabel(payload: unknown): string | null {
   const normalizedNodeText = getNodeSearchText(payload);
 
   if (!normalizedNodeText) {
@@ -1299,15 +1111,15 @@ function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {
   }
 
   if (includesAny(normalizedNodeText, ["用户输入", "user input", "start"])) {
-    return "user_input";
+    return "用户输入";
   }
 
   if (includesAny(normalizedNodeText, ["题目识别", "problem", "question"])) {
-    return "problem_recognition";
+    return "题目识别";
   }
 
   if (includesAny(normalizedNodeText, ["答案识别", "answer"])) {
-    return "answer_recognition";
+    return "答案识别";
   }
 
   if (
@@ -1318,7 +1130,7 @@ function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {
       "知识库检索",
     ])
   ) {
-    return "knowledge_retrieval";
+    return "知识检索";
   }
 
   if (
@@ -1329,7 +1141,7 @@ function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {
       "available",
     ])
   ) {
-    return "knowledge_available";
+    return "知识库可用性判断";
   }
 
   if (
@@ -1343,7 +1155,7 @@ function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {
       "if/else",
     ])
   ) {
-    return "branch";
+    return "工作流分支";
   }
 
   if (
@@ -1354,15 +1166,15 @@ function matchWorkflowStep(payload: unknown): WorkflowStepKey | null {
       "reference answer",
     ])
   ) {
-    return "standard_solution";
+    return "标准解生成";
   }
 
   if (includesAny(normalizedNodeText, ["批改", "评分", "grade", "grading"])) {
-    return "grading";
+    return "批改";
   }
 
   if (includesAny(normalizedNodeText, ["输出", "output", "end"])) {
-    return "output";
+    return "输出";
   }
 
   return null;
@@ -1395,30 +1207,6 @@ function getNodeSearchText(payload: unknown) {
 
 function includesAny(value: string, keywords: string[]) {
   return keywords.some((keyword) => value.includes(keyword.toLowerCase()));
-}
-
-function updateWorkflowStep(
-  steps: WorkflowStep[],
-  key: WorkflowStepKey,
-  status: WorkflowStepStatus,
-) {
-  return steps.map((step) => {
-    if (step.key !== key) {
-      return step;
-    }
-
-    if (step.status === "done" && status === "running") {
-      return step;
-    }
-
-    return { ...step, status };
-  });
-}
-
-function getWorkflowStepLabel(key: WorkflowStepKey) {
-  return (
-    workflowStepDefinitions.find((step) => step.key === key)?.label ?? "工作流节点"
-  );
 }
 
 function formatHistoryTime(value: string) {
