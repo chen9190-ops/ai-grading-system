@@ -70,6 +70,9 @@ model Submission {
   id               String   @id @default(cuid())
   requestId        String?
   workflowRunId    String?
+  title            String?
+  problemImageUrl  String?
+  answerImageUrl   String?
   studentName      String   @default("匿名学生")
   studentId        String?
   courseName       String   @default("工程课程")

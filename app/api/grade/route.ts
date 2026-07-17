@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { DifySseParser, type DifySseEvent } from "@/lib/dify-sse";
 import {
   cleanGradingMarkdown,
@@ -6,6 +8,7 @@ import {
   isReasonableGradingText,
   selectGradingReport,
 } from "@/lib/grading-report";
+import { selectQuestionTitle } from "@/lib/grading-title";
 
 type DifyUploadedFile = {
   id: string;
@@ -18,6 +21,7 @@ const publicStreamErrorMessage = "AI分析超时或服务繁忙，请重试";
 const timeoutErrorMessage = "AI批改超时，请稍后重试";
 const responsePreviewLength = 500;
 const gradingTimeoutMs = 10 * 60 * 1000;
+const maxImageSize = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const requestId = randomUUID();
@@ -69,9 +73,15 @@ export async function POST(request: Request) {
   }
 
   try {
+    const [problemImageUrl, answerImageUrl] = await Promise.all([
+      persistGradingImage(problemImage),
+      persistGradingImage(answerImage),
+    ]);
     return streamDifyWorkflow(baseUrl.replace(/\/$/, ""), apiKey, requestId, {
       problemImage,
       answerImage,
+      problemImageUrl,
+      answerImageUrl,
     });
   } catch (error) {
     logError(requestId, "grade stream creation failed", errorDetails(error));
@@ -85,7 +95,17 @@ export async function POST(request: Request) {
 }
 
 function isValidImage(value: FormDataEntryValue | null): value is File {
-  return value instanceof File && allowedImageTypes.has(value.type);
+  return value instanceof File && allowedImageTypes.has(value.type) && value.size > 0 && value.size <= maxImageSize;
+}
+
+async function persistGradingImage(file: File) {
+  const extension = file.type === "image/png" ? "png" : "jpg";
+  const filename = `${randomUUID()}.${extension}`;
+  const relativeUrl = `/api/grade/history/image?asset=${filename}`;
+  const uploadDirectory = path.join(process.cwd(), "storage", "grading");
+  await mkdir(uploadDirectory, { recursive: true });
+  await writeFile(path.join(uploadDirectory, filename), Buffer.from(await file.arrayBuffer()), { flag: "wx" });
+  return relativeUrl;
 }
 
 function streamDifyWorkflow(
@@ -95,6 +115,8 @@ function streamDifyWorkflow(
   files: {
     problemImage: File;
     answerImage: File;
+    problemImageUrl: string;
+    answerImageUrl: string;
   },
 ) {
   const stream = new ReadableStream({
@@ -116,7 +138,7 @@ function streamDifyWorkflow(
           throw new Error("Empty Dify stream");
         }
 
-        await forwardDifySse(difyResponse.body, controller, requestId);
+        await forwardDifySse(difyResponse.body, controller, requestId, { problemImageUrl: files.problemImageUrl, answerImageUrl: files.answerImageUrl });
       } catch (error) {
         logError(requestId, "Dify request chain failed", errorDetails(error));
         const message = abortController.signal.aborted
@@ -246,6 +268,7 @@ async function forwardDifySse(
   body: ReadableStream<Uint8Array>,
   controller: ReadableStreamDefaultController,
   requestId: string,
+  media: { problemImageUrl: string; answerImageUrl: string },
 ) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -264,7 +287,7 @@ async function forwardDifySse(
       if (done) {
         const decoderTail = decoder.decode();
         for (const event of parser.push(decoderTail)) {
-          const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult);
+          const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult, media);
           streamedText = state.streamedText;
           nodeResult = state.nodeResult;
           if (state.workflowFinished) {
@@ -281,7 +304,7 @@ async function forwardDifySse(
         responsePreview += decodedChunk.slice(0, responsePreviewLength - responsePreview.length);
       }
       for (const event of parser.push(decodedChunk)) {
-        const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult);
+        const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult, media);
         streamedText = state.streamedText;
         nodeResult = state.nodeResult;
         if (state.workflowFinished) {
@@ -292,7 +315,7 @@ async function forwardDifySse(
     }
 
     for (const event of parser.finish()) {
-      const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult);
+      const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult, media);
       if (state.workflowFinished) {
         workflowFinished = true;
         finalResult = state.finalResult;
@@ -320,6 +343,7 @@ function handleDifyEvent(
   requestId: string,
   streamedText: string,
   nodeResult: string,
+  media: { problemImageUrl: string; answerImageUrl: string },
 ) {
   logInfo(requestId, "Dify SSE event", { event: event.event });
 
@@ -374,6 +398,9 @@ function handleDifyEvent(
             createdAt: new Date().toISOString(),
             workflowRunId: getWorkflowRunId(event.payload),
             selectedOutputField,
+            title: selectQuestionTitle(outputs, finalResult),
+            problemImageUrl: media.problemImageUrl,
+            answerImageUrl: media.answerImageUrl,
           },
         }
       : { event: "workflow_finished", result: finalResult };

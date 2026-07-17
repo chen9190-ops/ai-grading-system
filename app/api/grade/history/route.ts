@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
 import { canAccessGradingRecord, extractStoredGradingReport, normalizeStoredScore } from "@/lib/grading-history";
+import { historyTitle } from "@/lib/grading-title";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
         requestId: true,
         workflowRunId: true,
         assignmentName: true,
+        title: true,
         courseName: true,
         score: true,
         gradingResult: true,
@@ -34,8 +36,9 @@ export async function GET(request: Request) {
         createdAt: true,
         problemImageName: true,
         answerImageName: true,
-        problemImages: true,
-        answerImages: true,
+        problemImageUrl: true,
+        answerImageUrl: true,
+        problemOcr: true,
       },
     });
 
@@ -49,14 +52,14 @@ export async function GET(request: Request) {
       id: record.id,
       requestId: record.requestId,
       workflowRunId: record.workflowRunId,
-      title: record.assignmentName || record.problemImageName,
+      title: historyTitle(record.title, record.problemOcr, record.courseName),
       courseName: record.courseName,
       score: normalizeStoredScore(record.score),
       maxScore: 10,
       markdown,
       createdAt: record.createdAt,
-      problemImageUrl: firstImage(record.problemImages),
-      answerImageUrl: firstImage(record.answerImages),
+      problemImageUrl: record.problemImageUrl ? protectedImageUrl(record.id, "problem") : null,
+      answerImageUrl: record.answerImageUrl ? protectedImageUrl(record.id, "answer") : null,
     };
     console.info(`[grading-history][api][${logRequestId}] response sent`, { databaseId, status: 200 });
     return Response.json(payload);
@@ -70,21 +73,21 @@ async function listHistory(userId: string, logRequestId: string) {
     where: { userId },
     orderBy: { createdAt: "desc" },
     take: 100,
-    select: { id: true, requestId: true, assignmentName: true, problemImageName: true, courseName: true, score: true, gradingResult: true, aiResult: true, createdAt: true },
+    select: { id: true, requestId: true, title: true, problemOcr: true, courseName: true, score: true, gradingResult: true, aiResult: true, problemImageUrl: true, createdAt: true },
   });
   const history = records.map((record) => {
     const markdown = extractStoredGradingReport(record);
-    return { id: record.id, requestId: record.requestId, title: record.assignmentName || record.problemImageName, courseName: record.courseName, score: normalizeStoredScore(record.score), maxScore: 10, createdAt: record.createdAt, hasReport: Boolean(markdown) };
+    return { id: record.id, requestId: record.requestId, title: historyTitle(record.title, record.problemOcr, record.courseName), problemImageUrl: record.problemImageUrl ? protectedImageUrl(record.id, "problem") : null, courseName: record.courseName, score: normalizeStoredScore(record.score), maxScore: 10, createdAt: record.createdAt, hasReport: Boolean(markdown) };
   });
   console.info(`[grading-history][api][${logRequestId}] response sent`, { status: 200, recordCount: history.length });
   return Response.json({ history });
 }
 
-function firstImage(value: unknown): string | null {
-  return Array.isArray(value) && typeof value[0] === "string" ? value[0] : null;
-}
-
 function fail(requestId: string, databaseId: string | null, stage: string, errorType: string, status: number, message: string) {
   console.error(`[grading-history][api][${requestId}] request failed`, { databaseId, stage, errorType, status });
   return Response.json({ error: message, requestId }, { status });
+}
+
+function protectedImageUrl(id: string, kind: "problem" | "answer") {
+  return `/api/grade/history/image?id=${encodeURIComponent(id)}&kind=${kind}`;
 }

@@ -86,6 +86,9 @@ export async function POST(request: Request) {
       data: {
         requestId: asNullableString(body.requestId),
         workflowRunId: asNullableString(body.workflowRunId),
+        title: asNullableString(body.title),
+        problemImageUrl: asSafeUploadUrl(body.problemImageUrl),
+        answerImageUrl: asSafeUploadUrl(body.answerImageUrl),
         studentName: sessionUser.name,
         studentId: sessionUser.studentProfile?.studentId ?? asNullableString(body.studentId),
         courseName: asString(body.courseName) || "工程课程",
@@ -146,4 +149,9 @@ function asNumber(value: unknown) {
     return Number(value);
   }
   return null;
+}
+
+function asSafeUploadUrl(value: unknown) {
+  const url = asNullableString(value);
+  return url && /^\/api\/grade\/history\/image\?asset=[0-9a-f-]+\.(?:jpg|png)$/i.test(url) ? url : null;
 }
