@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { DifySseParser, type DifySseEvent } from "@/lib/dify-sse";
+import {
+  cleanGradingMarkdown,
+  extractScore,
+  isReasonableGradingText,
+  selectGradingReport,
+} from "@/lib/grading-report";
 
 type DifyUploadedFile = {
   id: string;
@@ -328,25 +334,48 @@ function handleDifyEvent(
   }
 
   let nextStreamedText = streamedText;
-  let nextNodeResult = nodeResult;
+  const nextNodeResult = nodeResult;
   if (event.event === "text_chunk") {
-    nextStreamedText += extractTextCandidate(
-      getRecordValue(event.payload, "data") ?? event.payload,
-    );
-  }
-  if (event.event === "node_finished") {
-    nextNodeResult = extractDifyResult(event.payload, false) || nextNodeResult;
+    nextStreamedText += extractTextChunk(event.payload);
   }
 
   if (event.event === "workflow_finished") {
-    const finalResult =
-      extractDifyResult(event.payload, false) || nextStreamedText || nextNodeResult;
+    const data = getRecordValue(event.payload, "data");
+    const outputs = getRecordValue(data, "outputs") ?? getRecordValue(event.payload, "outputs");
+    const selected = selectGradingReport(outputs);
+    const streamedMarkdown = cleanGradingMarkdown(nextStreamedText);
+    const finalResult = selected.markdown || (
+      isReasonableGradingText(streamedMarkdown) ? streamedMarkdown : ""
+    );
+    const selectedOutputField = selected.markdown ? selected.selectedOutputField : finalResult ? "text_chunk" : null;
+    logInfo(requestId, "Dify grading output selected", {
+      requestId,
+      outputKeys: selected.outputKeys,
+      selectedOutputField,
+      selectedTextLength: finalResult.length,
+      hadThinkBlock: selected.hadThinkBlock || /<think>[\s\S]*?<\/think>/i.test(nextStreamedText),
+    });
+    if (!finalResult) {
+      throw new Error(`未能读取 AI 批改正文，请使用 requestId ${requestId} 联系管理员。`);
+    }
     logInfo(requestId, "Dify workflow_finished processed", {
       workflowFinished: true,
       finalResultExtracted: Boolean(finalResult),
     });
     const payload = isRecord(event.payload)
-      ? { ...event.payload, result: finalResult }
+      ? {
+          ...event.payload,
+          result: finalResult,
+          gradingReport: {
+            requestId,
+            score: selected.markdown ? selected.score : extractScore(finalResult),
+            maxScore: 10,
+            markdown: finalResult,
+            createdAt: new Date().toISOString(),
+            workflowRunId: getWorkflowRunId(event.payload),
+            selectedOutputField,
+          },
+        }
       : { event: "workflow_finished", result: finalResult };
     enqueueSse(controller, event.event, payload);
     return { streamedText: nextStreamedText, nodeResult: nextNodeResult, workflowFinished: true, finalResult };
@@ -354,6 +383,21 @@ function handleDifyEvent(
 
   enqueueSse(controller, event.event, event.payload ?? event.data);
   return { streamedText: nextStreamedText, nodeResult: nextNodeResult, workflowFinished: false, finalResult: "" };
+}
+
+function extractTextChunk(payload: unknown) {
+  const data = getRecordValue(payload, "data");
+  const text = getRecordValue(data, "text") ?? getRecordValue(payload, "text");
+  return typeof text === "string" ? text : "";
+}
+
+function getWorkflowRunId(payload: unknown) {
+  const data = getRecordValue(payload, "data");
+  const id =
+    getRecordValue(payload, "workflow_run_id") ??
+    getRecordValue(data, "workflow_run_id") ??
+    getRecordValue(data, "id");
+  return typeof id === "string" ? id : "";
 }
 
 function enqueueSse(
@@ -455,99 +499,6 @@ function getDifyErrorMessage(prefix: string, data: unknown) {
   }
 
   return prefix;
-}
-
-function extractDifyResult(payload: unknown, useFallback = true) {
-  const workflowData =
-    typeof payload === "string" ? tryParseJson(payload) ?? payload : payload;
-
-  const event = getRecordValue(workflowData, "event");
-  const data = getRecordValue(workflowData, "data");
-
-  if (event === "workflow_finished") {
-    const status = getRecordValue(data, "status");
-
-    if (status === "failed") {
-      return "AI分析失败，请稍后重试。";
-    }
-  }
-
-  const outputs = getRecordValue(data, "outputs") ?? getRecordValue(workflowData, "outputs");
-
-  const candidate =
-    getRecordValue(outputs, "direct_text") ??
-    getRecordValue(outputs, "reference_text") ??
-    getRecordValue(outputs, "none_text") ??
-    getRecordValue(outputs, "text") ??
-    getRecordValue(outputs, "result") ??
-    getRecordValue(outputs, "output") ??
-    getRecordValue(outputs, "answer") ??
-    getRecordValue(workflowData, "answer") ??
-    outputs;
-
-  const text = extractTextCandidate(candidate);
-
-  if (!text) {
-    return useFallback ? "未获取到有效批改结果，请检查 Dify 输出节点配置。" : "";
-  }
-  return cleanDifyText(text);
-}
-
-function extractTextCandidate(value: unknown): string {
-  if (typeof value === "string") {
-    const parsedText = parseJsonTextDeep(value);
-    return parsedText ?? value;
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  if (typeof value === "object" && value !== null) {
-    for (const key of ["result", "text", "answer", "output", "content", "markdown"]) {
-      const text = extractTextCandidate(getRecordValue(value, key));
-      if (text) return text;
-    }
-    for (const nestedValue of Object.values(value)) {
-      const text = extractTextCandidate(nestedValue);
-      if (text) return text;
-    }
-  }
-
-  return "";
-}
-
-function parseJsonTextDeep(value: string): string | null {
-  const trimmedValue = value.trim();
-
-  if (!trimmedValue.startsWith("{") && !trimmedValue.startsWith("[")) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(trimmedValue);
-    const text = getRecordValue(parsed, "text");
-
-    return typeof text === "string" ? parseJsonTextDeep(text) ?? text : null;
-  } catch {
-    return null;
-  }
-}
-
-function cleanDifyText(value: string) {
-  return value
-    .replace(/<think>[\s\S]*?<\/think>/g, "")
-    .replace(/\\n/g, "\n")
-    .replace(/\\"/g, '"')
-    .trim();
-}
-
-function tryParseJson(value: string) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
 }
 
 function getRecordValue(value: unknown, key: string) {

@@ -22,6 +22,10 @@ import {
 import { withBasePath } from "@/lib/base-path";
 import { DifySseParser } from "@/lib/dify-sse";
 import { safeRandomId } from "@/lib/safe-random-id";
+import {
+  extractScore,
+  selectGradingReportFromPayload,
+} from "@/lib/grading-report";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -339,6 +343,7 @@ export default function Home() {
 
   async function startGrading() {
     let gradeRequestUrl = "";
+    let gradingRequestId = "";
     try {
       if (questionDraft || answerDraft) {
         setStatus(incompleteCropHint);
@@ -378,11 +383,12 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
+      gradingRequestId = response.headers.get("x-grading-request-id") ?? "";
 
       console.info("[grading][client] grade response received", {
         requestUrl: gradeRequestUrl,
         status: response.status,
-        requestId: response.headers.get("x-grading-request-id"),
+        requestId: gradingRequestId,
       });
 
       if (!response.ok) {
@@ -417,9 +423,12 @@ export default function Home() {
           }
         },
         onWorkflowFinished: (payload) => {
-          console.log("Dify workflow_finished raw payload:", payload);
           latestWorkflowRunId = extractWorkflowRunId(payload);
-          const workflowResult = normalizeReportMarkdown(extractDifyResult(payload));
+          const selectedReport = selectGradingReportFromPayload(payload);
+          if (!selectedReport.markdown) {
+            throw new Error(`未能读取 AI 批改正文，请使用 requestId ${gradingRequestId || "unknown"} 联系管理员。`);
+          }
+          const workflowResult = normalizeReportMarkdown(selectedReport.markdown);
           setHasWorkflowEvent(true);
           setWorkflowSteps((currentSteps) =>
             currentSteps.map((step) => ({ ...step, status: "done" })),
@@ -430,6 +439,8 @@ export default function Home() {
       });
 
       const normalizedResult = normalizeReportMarkdown(nextResult);
+      const gradingScore = extractScore(normalizedResult);
+      const createdAt = new Date().toISOString();
       setStatus("批改完成");
       setResult(normalizedResult);
       setHasWorkflowEvent(true);
@@ -438,12 +449,12 @@ export default function Home() {
       );
       addHistoryItem({
         id: safeRandomId("grading"),
-        createdAt: new Date().toISOString(),
+        createdAt,
         workflowRunId: latestWorkflowRunId,
         problemFileName: questionUpload.fileName,
         answerFileName: answerUpload.fileName,
         resultPreview: createResultPreview(normalizedResult),
-        score: extractScore(normalizedResult),
+        score: gradingScore === null ? undefined : `${gradingScore}/10`,
       });
       const submissionSaved = await saveSubmission({
         studentName,
@@ -461,10 +472,14 @@ export default function Home() {
       }
 
       saveGradingResult({
+        requestId: gradingRequestId,
+        markdown: normalizedResult,
+        createdAt,
+        workflowRunId: latestWorkflowRunId,
+        maxScore: 10,
         questionImage: questionUpload.previewUrl,
         questionFileName: questionUpload.fileName,
-        result: normalizedResult,
-        score: extractScore(normalizedResult),
+        score: gradingScore,
         questionType: courseName.trim() || "工程课程",
         difficulty: 3,
         knowledgePoints: extractKnowledgePoints(normalizedResult),
@@ -530,18 +545,24 @@ export default function Home() {
       );
       const data = await response.json();
 
-      if (!response.ok || typeof data?.result !== "string") {
+      if (!response.ok || typeof data?.markdown !== "string") {
         throw new Error("history unavailable");
       }
 
-      const historyResult = normalizeReportMarkdown(data.result);
+      const historyResult = normalizeReportMarkdown(data.markdown);
+      const historyScore = typeof data.score === "number" ? data.score : extractScore(historyResult);
+      const createdAt = new Date().toISOString();
       setResult(historyResult);
       setStatus("已加载历史批改详情");
       saveGradingResult({
+        requestId: "",
+        markdown: historyResult,
+        createdAt,
+        workflowRunId: item.workflowRunId,
+        maxScore: 10,
         questionImage: "",
         questionFileName: item.problemFileName,
-        result: historyResult,
-        score: item.score || extractScore(historyResult),
+        score: historyScore,
         questionType: courseName.trim() || "工程课程",
         difficulty: 3,
         knowledgePoints: extractKnowledgePoints(historyResult),
@@ -984,7 +1005,13 @@ function processWorkflowEvent(
   if (eventName !== "workflow_finished") return currentResult;
 
   handlers.onWorkflowFinished(payload);
-  return normalizeReportMarkdown(extractDifyResult(payload));
+  const selectedReport = selectGradingReportFromPayload(payload);
+  if (!selectedReport.markdown) {
+    const gradingReport = getRecordValue(payload, "gradingReport");
+    const requestId = getRecordValue(gradingReport, "requestId");
+    throw new Error(`未能读取 AI 批改正文，请使用 requestId ${typeof requestId === "string" ? requestId : "unknown"} 联系管理员。`);
+  }
+  return normalizeReportMarkdown(selectedReport.markdown);
 }
 
 function extractStreamError(payload: unknown) {
@@ -1005,85 +1032,6 @@ async function readGradeError(response: Response) {
   return typeof message === "string" && message.trim()
     ? message
     : `AI批改请求失败（${response.status}）`;
-}
-
-function extractDifyResult(payload: unknown) {
-  const workflowData =
-    typeof payload === "string" ? tryParseJson(payload) ?? payload : payload;
-  const event = getRecordValue(workflowData, "event");
-  const data = getRecordValue(workflowData, "data");
-
-  if (event === "workflow_finished") {
-    const status = getRecordValue(data, "status");
-
-    if (status === "failed") {
-      return "AI分析失败，请稍后重试。";
-    }
-  }
-
-  const directResult = getRecordValue(workflowData, "result");
-  const outputs = getRecordValue(data, "outputs");
-  const candidate =
-  directResult ??
-  getRecordValue(outputs, "direct_text") ??
-  getRecordValue(outputs, "reference_text") ??
-  getRecordValue(outputs, "none_text") ??
-  getRecordValue(outputs, "text") ??
-  getRecordValue(outputs, "result") ??
-  getRecordValue(outputs, "output") ??
-  getRecordValue(outputs, "answer") ??
-  getRecordValue(workflowData, "answer");
-  const text = extractTextCandidate(candidate);
-
-  return cleanDifyText(
-    text || "未获取到有效批改结果，请检查 Dify 输出节点变量是否为 text。",
-  );
-}
-
-function extractTextCandidate(value: unknown): string {
-  if (typeof value === "string") {
-    const parsedText = parseJsonTextDeep(value);
-    return parsedText ?? value;
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  if (typeof value === "object" && value !== null) {
-    const text = getRecordValue(value, "text");
-
-    if (typeof text === "string") {
-      return parseJsonTextDeep(text) ?? text;
-    }
-  }
-
-  return "";
-}
-
-function parseJsonTextDeep(value: string): string | null {
-  const trimmedValue = value.trim();
-
-  if (!trimmedValue.startsWith("{") && !trimmedValue.startsWith("[")) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(trimmedValue);
-    const text = getRecordValue(parsed, "text");
-
-    return typeof text === "string" ? parseJsonTextDeep(text) ?? text : null;
-  } catch {
-    return null;
-  }
-}
-
-function cleanDifyText(value: string) {
-  return value
-    .replace(/<think>[\s\S]*?<\/think>/g, "")
-    .replace(/\\n/g, "\n")
-    .replace(/\\"/g, '"')
-    .trim();
 }
 
 function normalizeReportMarkdown(value: string): string {
@@ -1174,14 +1122,6 @@ function createResultPreview(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
-function extractScore(value: string) {
-  const match = value.match(
-    /(?:评分|得分|综合评分|总分)\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?\s*(?:\/\s*[0-9]+(?:\.[0-9]+)?)?)/,
-  );
-
-  return match?.[1]?.trim() || "";
-}
-
 function extractKnowledgePoints(value: string) {
   const knowledgeText = extractReportField(value, [
     "知识点",
@@ -1198,10 +1138,14 @@ function extractKnowledgePoints(value: string) {
 }
 
 function saveGradingResult(payload: {
+  requestId: string;
+  markdown: string;
+  createdAt: string;
+  workflowRunId: string;
+  maxScore: 10;
   questionImage: string;
   questionFileName: string;
-  result: string;
-  score: string;
+  score: number | null;
   questionType: string;
   difficulty: number;
   knowledgePoints: string[];
@@ -1233,8 +1177,7 @@ async function saveSubmission(input: {
   gradingResult: string;
   assignmentName: string;
 }) {
-  const scoreText = extractScore(input.gradingResult);
-  const score = scoreText ? Number(scoreText.split("/")[0].trim()) : null;
+  const score = extractScore(input.gradingResult);
   const payload = {
     ...input,
     studentName: input.studentName.trim() || "匿名学生",
