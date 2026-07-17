@@ -1,8 +1,8 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import ReactMarkdown from "react-markdown";
 import {
   ArrowRight,
   Atom,
@@ -13,6 +13,12 @@ import {
   LineChart,
   Layers3,
   LoaderCircle,
+  Bot,
+  Download,
+  Lightbulb,
+  RefreshCw,
+  PenLine,
+  CheckCheck,
   Send,
   Sparkles,
   Wind,
@@ -22,6 +28,9 @@ import MobileTopBar from "../components/mobile/MobileTopBar";
 import { withBasePath } from "@/lib/base-path";
 import { formatScoreWithMaximum, parseScore, scoreProgress } from "@/lib/score-scale";
 import { gradingHistoryPath } from "@/lib/grading-history";
+import GradingMarkdown from "../components/GradingMarkdown";
+import { normalizePracticeMarkdown, parsePracticePaper, type PracticePaper, type PracticeQuestion } from "@/lib/practice-paper";
+import { createTrainingAssistantContext, trainingAssistantContextKey, type TrainingAssistantAction } from "@/lib/training-assistant-context";
 
 type HistoryItem = {
   id: string;
@@ -64,6 +73,10 @@ export default function PracticePage() {
   const [prompt, setPrompt] = useState("");
   const [notice, setNotice] = useState("");
   const [paper, setPaper] = useState("");
+  const [structuredPaper, setStructuredPaper] = useState<PracticePaper | null>(null);
+  const [paperId, setPaperId] = useState("");
+  const [showAnswers, setShowAnswers] = useState(false);
+  const [activeAnswerId, setActiveAnswerId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
@@ -110,6 +123,8 @@ export default function PracticePage() {
     setGenerating(true);
     setNotice("");
     setPaper("");
+    setStructuredPaper(null);
+    setPaperId("");
 
     try {
       const response = await fetch(withBasePath("/api/practice/generate"), {
@@ -125,11 +140,41 @@ export default function PracticePage() {
       }
 
       setPaper(payload.paper.trim());
+      setStructuredPaper(parsePracticePaper(payload.paper.trim()));
+      setPaperId(isRecord(payload.conversation) && typeof payload.conversation.id === "string" ? payload.conversation.id : "");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "AI 试卷生成失败，请稍后重试");
     } finally {
       setGenerating(false);
     }
+  }
+
+  function exportPdf() {
+    if (!paper) return;
+    try {
+      document.body.classList.add("practice-print-mode");
+      const cleanup = () => document.body.classList.remove("practice-print-mode");
+      window.addEventListener("afterprint", cleanup, { once: true });
+      window.print();
+      window.setTimeout(cleanup, 1_000);
+    } catch {
+      setNotice("PDF 导出失败，当前试卷仍保留在页面中");
+    }
+  }
+
+  function openAssistant(question: PracticeQuestion | null, requestedAction: TrainingAssistantAction) {
+    try {
+      const context = createTrainingAssistantContext(paperId, question, requestedAction);
+      if (!question && structuredPaper) {
+        context.questionMarkdown = structuredPaper.questions.map((item) => `第${item.index}题\n${item.stemMarkdown}`).join("\n\n").slice(0, 8_000);
+        context.knowledgePoints = [...new Set(structuredPaper.questions.flatMap((item) => item.knowledgePoints))].slice(0, 10);
+        context.difficulty = structuredPaper.difficulty;
+      }
+      window.sessionStorage.setItem(trainingAssistantContextKey, JSON.stringify(context));
+    } catch {
+      setNotice("AI 助手上下文传递失败，已进入普通聊天");
+    }
+    router.push("/chat");
   }
 
   return (
@@ -181,7 +226,7 @@ export default function PracticePage() {
             {notice ? <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[10px] text-amber-700">{notice}</p> : null}
             <button type="button" onClick={() => void generatePractice()} disabled={generating || !prompt.trim()} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#1686f7] to-[#0753bc] text-sm font-semibold text-white shadow-[0_9px_20px_rgba(8,112,229,.26)] disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none">{generating ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}{generating ? "AI 正在生成试卷..." : "生成训练"}{generating ? null : <Send className="size-4" />}</button>
           </div>
-          {paper ? <article className="mt-4 overflow-hidden rounded-[24px] border border-white/80 bg-white/82 shadow-[0_9px_26px_rgba(30,41,59,.08)] backdrop-blur-md"><div className="border-b border-slate-200/70 bg-slate-100/65 px-4 py-3"><p className="text-[9px] font-semibold uppercase tracking-[.16em] text-blue-600">Generated paper</p><h3 className="mt-1 text-sm font-bold">AI 生成训练试卷</h3></div><div className="px-4 py-4"><ReactMarkdown components={{ h1: ({ children }) => <h1 className="mb-4 text-xl font-bold text-slate-800">{children}</h1>, h2: ({ children }) => <h2 className="mb-2 mt-5 border-l-2 border-blue-500 pl-2 text-base font-bold text-slate-800 first:mt-0">{children}</h2>, h3: ({ children }) => <h3 className="mb-2 mt-4 text-sm font-bold text-slate-700">{children}</h3>, p: ({ children }) => <p className="my-2 whitespace-pre-wrap text-xs leading-6 text-slate-600">{children}</p>, ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 text-xs leading-6 text-slate-600">{children}</ul>, ol: ({ children }) => <ol className="my-2 list-decimal space-y-2 pl-5 text-xs leading-6 text-slate-600">{children}</ol>, strong: ({ children }) => <strong className="font-semibold text-slate-800">{children}</strong>, hr: () => <hr className="my-4 border-slate-200" /> }}>{paper}</ReactMarkdown></div></article> : null}
+          {paper ? <article className="practice-paper-print mt-4 overflow-hidden rounded-[24px] border border-white/80 bg-white/82 shadow-[0_9px_26px_rgba(30,41,59,.08)] backdrop-blur-md"><div className="border-b border-slate-200/70 bg-slate-100/65 px-4 py-3"><div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-semibold uppercase tracking-[.16em] text-blue-600">Generated paper</p><h3 className="mt-1 text-base font-bold">{structuredPaper?.paperTitle || "AI 生成训练试卷"}</h3>{structuredPaper ? <p className="mt-1 text-[10px] text-slate-500">{[structuredPaper.course, structuredPaper.chapter, structuredPaper.difficulty, structuredPaper.estimatedMinutes ? `${structuredPaper.estimatedMinutes} 分钟` : ""].filter(Boolean).join(" · ")}</p> : null}</div><div className="no-print flex flex-wrap justify-end gap-1.5"><button type="button" onClick={exportPdf} className="flex items-center gap-1 rounded-xl bg-white px-2.5 py-2 text-[10px] font-semibold text-slate-600 shadow-sm"><Download className="size-3.5" />导出PDF</button><button type="button" onClick={() => openAssistant(null, "paper")} className="flex items-center gap-1 rounded-xl bg-blue-600 px-2.5 py-2 text-[10px] font-semibold text-white"><Bot className="size-3.5" />发送到AI助手</button>{structuredPaper?.questions.some((item) => item.answer) ? <button type="button" onClick={() => setShowAnswers((value) => !value)} className="rounded-xl bg-slate-200 px-2.5 py-2 text-[10px] font-semibold text-slate-600">{showAnswers ? "学生版" : "教师版"}</button> : null}</div></div></div>{structuredPaper ? <div className="space-y-4 p-4">{structuredPaper.questions.map((item) => <section key={item.id} className="question-card rounded-[20px] border border-slate-200 bg-white p-4"><div className="flex items-center justify-between gap-2"><h4 className="text-sm font-bold">第 {item.index} 题</h4><div className="flex items-center gap-2 text-[9px] text-slate-400">{item.score !== null ? <span>{item.score} 分</span> : null}{item.difficulty ? <span>{item.difficulty}</span> : null}</div></div>{item.knowledgePoints.length ? <div className="mt-2 flex flex-wrap gap-1">{item.knowledgePoints.map((point) => <span key={point} className="rounded-full bg-blue-50 px-2 py-1 text-[9px] text-blue-600">{point}</span>)}</div> : null}{item.imageUrl ? <img src={item.imageUrl} alt={`第${item.index}题题图`} className="mt-3 max-h-64 w-full rounded-xl object-contain" /> : null}<div className="mt-3 overflow-x-auto"><GradingMarkdown content={item.stemMarkdown} /></div>{showAnswers && item.answer ? <div className="teacher-answer mt-3 rounded-xl bg-emerald-50 p-3"><p className="text-[10px] font-semibold text-emerald-700">标准答案与评分点</p><GradingMarkdown content={item.answer} /></div> : null}{activeAnswerId === item.id ? <textarea rows={4} placeholder="在这里输入你的作答..." className="no-print mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs outline-none focus:border-blue-300" /> : null}<div className="no-print mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3"><PaperAction icon={Bot} label="讲解本题" onClick={() => openAssistant(item, "explain")} /><PaperAction icon={Lightbulb} label="给我提示" onClick={() => openAssistant(item, "hint")} /><PaperAction icon={RefreshCw} label="生成同类题" onClick={() => openAssistant(item, "similar")} /><PaperAction icon={PenLine} label="开始作答" onClick={() => setActiveAnswerId(item.id)} /><PaperAction icon={CheckCheck} label="检查我的答案" onClick={() => openAssistant(item, "check")} /></div></section>)}</div> : <div className="px-4 py-4"><p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-[10px] text-amber-700">结构化解析失败，已回退为完整 Markdown 预览。</p><div className="overflow-x-auto"><GradingMarkdown content={normalizePracticeMarkdown(paper)} /></div></div>}<div className="print-page-number hidden" /></article> : null}
         </section>
 
         <section>
@@ -189,12 +234,30 @@ export default function PracticePage() {
           <div className="rounded-[24px] border border-white/80 bg-white/75 px-6 py-12 text-center shadow-[0_8px_24px_rgba(30,41,59,.06)] backdrop-blur-md"><span className="mx-auto grid size-14 place-items-center rounded-[20px] bg-slate-100 text-slate-400"><FileClock className="size-6" /></span><h3 className="mt-4 text-sm font-bold text-slate-600">暂无训练记录</h3><p className="mt-2 text-[11px] leading-5 text-slate-400">完成 AI 训练后，训练名称、完成时间和得分会显示在这里。</p></div>
         </section>
       </div>
+      <style jsx global>{`
+        @media print {
+          @page { size: A4; margin: 16mm 14mm 18mm; }
+          body.practice-print-mode * { visibility: hidden !important; }
+          body.practice-print-mode .practice-paper-print,
+          body.practice-print-mode .practice-paper-print * { visibility: visible !important; }
+          body.practice-print-mode .practice-paper-print { position: absolute; inset: 0; width: 100%; border: 0; box-shadow: none; background: white; }
+          body.practice-print-mode .no-print { display: none !important; }
+          body.practice-print-mode .question-card { break-inside: avoid; page-break-inside: avoid; }
+          body.practice-print-mode .print-page-number { display: block !important; position: fixed; right: 0; bottom: -10mm; font-size: 9px; color: #64748b; }
+          body.practice-print-mode .print-page-number::after { content: "第 " counter(page) " 页"; }
+          body.practice-print-mode .katex-display { overflow: visible; }
+        }
+      `}</style>
     </MobileShell>
   );
 }
 
 function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
   return <div className="mb-3 px-1"><p className="text-[9px] font-semibold uppercase tracking-[.18em] text-blue-600">{eyebrow}</p><h2 className="mt-0.5 text-lg font-bold">{title}</h2></div>;
+}
+
+function PaperAction({ icon: Icon, label, onClick }: { icon: typeof Bot; label: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className="flex h-9 items-center justify-center gap-1 rounded-xl bg-slate-100 px-2 text-[10px] font-semibold text-slate-600 active:bg-blue-50 active:text-blue-600"><Icon className="size-3.5" />{label}</button>;
 }
 
 function calculateCourseMastery(course: Course, history: HistoryItem[]) {

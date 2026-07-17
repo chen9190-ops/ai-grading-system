@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
-import { LoaderCircle, MoreHorizontal, Paperclip, Send, Sparkles } from "lucide-react";
+import { BookOpenCheck, LoaderCircle, MoreHorizontal, Paperclip, Send, Sparkles } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { safeRandomId } from "@/lib/safe-random-id";
+import { trainingAssistantContextKey, trainingAssistantInitialRequest, type TrainingAssistantContext } from "@/lib/training-assistant-context";
 
 type Message = { id: string; role: "assistant" | "student"; content: string };
 
@@ -17,6 +18,26 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [loading, setLoading] = useState(false);
+  const [trainingContext, setTrainingContext] = useState<TrainingAssistantContext | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    try {
+      const stored = window.sessionStorage.getItem(trainingAssistantContextKey);
+      if (!stored) return;
+      const parsed: unknown = JSON.parse(stored);
+      if (!isTrainingContext(parsed)) return;
+      queueMicrotask(() => {
+        if (!active) return;
+        setTrainingContext(parsed);
+        setInput(trainingAssistantInitialRequest(parsed));
+      });
+      window.sessionStorage.removeItem(trainingAssistantContextKey);
+    } catch {
+      // Ordinary chat remains available when source context cannot be restored.
+    }
+    return () => { active = false; };
+  }, []);
 
   async function sendMessage(value?: string) {
     const content = (value ?? input).trim();
@@ -35,7 +56,6 @@ export default function ChatPage() {
       const answer = isRecord(payload) && typeof payload.answer === "string"
         ? payload.answer.trim()
         : "";
-
       if (!isRecord(payload) || !response.ok || payload.success !== true || !answer) {
         const error = isRecord(payload) && typeof payload.error === "string" ? payload.error : "AI 助教回复失败";
         throw new Error(error);
@@ -55,6 +75,7 @@ export default function ChatPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
           <div className="mb-6 flex items-center justify-center gap-1.5 text-[9px] uppercase tracking-[.16em] text-slate-400"><Sparkles className="size-3 text-blue-500" />专业课程学习对话</div>
+          {trainingContext ? <div className="mb-5 rounded-[18px] border border-blue-100 bg-blue-50/80 p-3"><div className="flex items-center gap-2 text-xs font-semibold text-blue-700"><BookOpenCheck className="size-4" />来自训练中心：{trainingContext.questionIndex ? `第${trainingContext.questionIndex}题` : "整套试卷"}</div><p className="mt-1 text-[10px] text-blue-500">已根据所选操作生成初始请求，可编辑后发送。</p></div> : null}
           <div className="space-y-5">{messages.map((message) => message.role === "assistant" ? <div key={message.id} className="flex items-end gap-2.5"><div className="relative size-8 shrink-0 overflow-hidden rounded-full border border-white bg-slate-900"><Image src={withBasePath("/assets/astronaut-ai-assistant.png")} alt="" fill sizes="32px" className="object-cover object-[58%_25%]" /></div><div className="max-w-[78%] whitespace-pre-wrap rounded-[5px_20px_20px_20px] border border-white/80 bg-white/85 px-4 py-3 text-[13px] leading-6 text-slate-700 shadow-[0_6px_18px_rgba(30,41,59,.07)] backdrop-blur-md">{message.content}</div></div> : <div key={message.id} className="flex justify-end"><div className="max-w-[78%] whitespace-pre-wrap rounded-[20px_20px_5px_20px] bg-blue-600 px-4 py-3 text-[13px] leading-6 text-white shadow-[0_7px_18px_rgba(37,99,235,.22)]">{message.content}</div></div>)}{loading ? <div className="flex items-end gap-2.5"><div className="relative size-8 shrink-0 overflow-hidden rounded-full border border-white bg-slate-900"><Image src={withBasePath("/assets/astronaut-ai-assistant.png")} alt="" fill sizes="32px" className="object-cover object-[58%_25%]" /></div><div className="flex items-center gap-2 rounded-[5px_20px_20px_20px] border border-white/80 bg-white/85 px-4 py-3 text-xs text-slate-500 shadow-sm backdrop-blur-md"><LoaderCircle className="size-4 animate-spin text-blue-600" />AI 正在思考...</div></div> : null}</div>
         </div>
 
@@ -68,4 +89,9 @@ export default function ChatPage() {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isTrainingContext(value: unknown): value is TrainingAssistantContext {
+  if (!isRecord(value)) return false;
+  return typeof value.paperId === "string" && (value.questionId === null || typeof value.questionId === "string") && (value.questionIndex === null || typeof value.questionIndex === "number") && typeof value.questionMarkdown === "string" && Array.isArray(value.knowledgePoints) && typeof value.difficulty === "string" && ["explain", "hint", "similar", "check", "paper"].includes(String(value.requestedAction));
 }
