@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
+import { DifySseParser } from "@/lib/dify-sse";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -383,7 +384,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error("AI分析超时或服务繁忙，请重试");
+        throw new Error(await readGradeError(response));
       }
 
       if (!response.body) {
@@ -483,13 +484,16 @@ export default function Home() {
       });
       router.push("/grading");
     } catch (error) {
+      const errorMessage = error instanceof Error && error.message.trim()
+        ? error.message
+        : "AI分析超时或服务繁忙，请重试";
       console.error("[grading][client] grade request failed", {
         requestUrl: gradeRequestUrl,
         name: error instanceof Error ? error.name : "UnknownError",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage,
       });
-      setStatus("批改失败");
-      setResult("AI分析超时或服务繁忙，请重试");
+      setStatus(`批改失败：${errorMessage}`);
+      setResult(errorMessage);
     } finally {
       setIsGrading(false);
     }
@@ -931,48 +935,26 @@ async function readWorkflowStream(
 ) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  const parser = new DifySseParser();
   let finalResult = "";
 
   while (true) {
     const { done, value } = await reader.read();
 
     if (done) {
+      for (const event of parser.push(decoder.decode())) {
+        finalResult = processWorkflowEvent(event.event, event.payload, handlers, finalResult);
+      }
       break;
     }
 
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split(/\n\n/);
-    buffer = events.pop() ?? "";
-
-    for (const eventText of events) {
-      const event = parseSseEvent(eventText);
-
-      if (!event) {
-        continue;
-      }
-
-      const payload = parseSseData(event.data);
-      const eventName = getDifyEventName(payload, event.event);
-
-      if (eventName === "error") {
-        throw new Error("AI分析超时或服务繁忙，请重试");
-      }
-
-      if (eventName === "node_started") {
-        handlers.onNodeStarted(payload);
-      }
-
-      if (eventName === "node_finished") {
-        handlers.onNodeFinished(payload);
-      }
-
-      if (eventName === "workflow_finished") {
-        console.log("Dify workflow_finished raw payload:", payload);
-        handlers.onWorkflowFinished(payload);
-        finalResult = normalizeReportMarkdown(extractDifyResult(payload));
-      }
+    for (const event of parser.push(decoder.decode(value, { stream: true }))) {
+      finalResult = processWorkflowEvent(event.event, event.payload, handlers, finalResult);
     }
+  }
+
+  for (const event of parser.finish()) {
+    finalResult = processWorkflowEvent(event.event, event.payload, handlers, finalResult);
   }
 
   if (!finalResult) {
@@ -982,49 +964,45 @@ async function readWorkflowStream(
   return finalResult;
 }
 
-function parseSseEvent(eventText: string) {
-  const lines = eventText.split(/\n/);
-  const dataLines: string[] = [];
-  let event = "";
-
-  for (const line of lines) {
-    if (line.startsWith("event:")) {
-      event = line.slice(6).trim();
-    }
-
-    if (line.startsWith("data:")) {
-      dataLines.push(line.slice(5).trimStart());
-    }
+function processWorkflowEvent(
+  eventName: string,
+  payload: unknown,
+  handlers: {
+    onNodeStarted: (payload: unknown) => void;
+    onNodeFinished: (payload: unknown) => void;
+    onWorkflowFinished: (payload: unknown) => void;
+  },
+  currentResult: string,
+) {
+  if (eventName === "error" || eventName === "workflow_failed") {
+    throw new Error(extractStreamError(payload));
   }
+  if (eventName === "node_started") handlers.onNodeStarted(payload);
+  if (eventName === "node_finished") handlers.onNodeFinished(payload);
+  if (eventName !== "workflow_finished") return currentResult;
 
-  if (dataLines.length === 0) {
-    return null;
-  }
-
-  return {
-    event,
-    data: dataLines.join("\n"),
-  };
+  handlers.onWorkflowFinished(payload);
+  return normalizeReportMarkdown(extractDifyResult(payload));
 }
 
-function parseSseData(data: string): unknown {
-  try {
-    return JSON.parse(data);
-  } catch {
-    return data;
-  }
+function extractStreamError(payload: unknown) {
+  const data = getRecordValue(payload, "data");
+  const message =
+    getRecordValue(payload, "message") ??
+    getRecordValue(payload, "error") ??
+    getRecordValue(data, "message") ??
+    getRecordValue(data, "error");
+  return typeof message === "string" && message.trim()
+    ? message
+    : "AI分析超时或服务繁忙，请重试";
 }
 
-function getDifyEventName(payload: unknown, fallbackEventName: string) {
-  if (typeof payload === "object" && payload !== null && "event" in payload) {
-    const event = (payload as { event?: unknown }).event;
-
-    if (typeof event === "string") {
-      return event;
-    }
-  }
-
-  return fallbackEventName;
+async function readGradeError(response: Response) {
+  const payload: unknown = await response.json().catch(() => null);
+  const message = getRecordValue(payload, "error") ?? getRecordValue(payload, "message");
+  return typeof message === "string" && message.trim()
+    ? message
+    : `AI批改请求失败（${response.status}）`;
 }
 
 function extractDifyResult(payload: unknown) {
