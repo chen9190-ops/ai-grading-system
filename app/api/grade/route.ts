@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DifySseParser, type DifySseEvent } from "@/lib/dify-sse";
 
 type DifyUploadedFile = {
@@ -13,7 +14,7 @@ const responsePreviewLength = 500;
 const gradingTimeoutMs = 10 * 60 * 1000;
 
 export async function POST(request: Request) {
-  const requestId = crypto.randomUUID();
+  const requestId = randomUUID();
   const apiKey = process.env.DIFY_API_KEY;
   const baseUrl = process.env.DIFY_BASE_URL;
 

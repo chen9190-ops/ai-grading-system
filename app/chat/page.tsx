@@ -6,6 +6,7 @@ import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
 import { LoaderCircle, MoreHorizontal, Paperclip, Send, Sparkles } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
+import { safeRandomId } from "@/lib/safe-random-id";
 
 type Message = { id: string; role: "assistant" | "student"; content: string };
 
@@ -20,7 +21,7 @@ export default function ChatPage() {
   async function sendMessage(value?: string) {
     const content = (value ?? input).trim();
     if (!content || loading) return;
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role: "student", content }]);
+    setMessages((current) => [...current, { id: safeRandomId("message"), role: "student", content }]);
     setInput("");
     setLoading(true);
 
@@ -40,9 +41,9 @@ export default function ChatPage() {
         throw new Error(error);
       }
 
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: answer }]);
+      setMessages((current) => [...current, { id: safeRandomId("message"), role: "assistant", content: answer }]);
     } catch (error) {
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: `暂时无法回答：${error instanceof Error ? error.message : "请稍后重试"}` }]);
+      setMessages((current) => [...current, { id: safeRandomId("message"), role: "assistant", content: `暂时无法回答：${error instanceof Error ? error.message : "请稍后重试"}` }]);
     } finally {
       setLoading(false);
     }

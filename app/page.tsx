@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { DifySseParser } from "@/lib/dify-sse";
+import { safeRandomId } from "@/lib/safe-random-id";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -337,20 +338,22 @@ export default function Home() {
   }
 
   async function startGrading() {
-    if (questionDraft || answerDraft) {
-      setStatus(incompleteCropHint);
-      return;
-    }
+    let gradeRequestUrl = "";
+    try {
+      if (questionDraft || answerDraft) {
+        setStatus(incompleteCropHint);
+        return;
+      }
 
-    if (!questionUpload?.file || !answerUpload?.file) {
-      setStatus(incompleteCropHint);
-      return;
-    }
+      if (!questionUpload?.file || !answerUpload?.file) {
+        setStatus(incompleteCropHint);
+        return;
+      }
 
-    const formData = new FormData();
-    formData.append("problem_image", questionUpload.file);
-    formData.append("answer_image", answerUpload.file);
-    const gradeRequestUrl = withBasePath("/api/grade");
+      const formData = new FormData();
+      formData.append("problem_image", questionUpload.file);
+      formData.append("answer_image", answerUpload.file);
+      gradeRequestUrl = withBasePath("/api/grade");
 
     console.info("[grading][client] grade button clicked", {
       requestUrl: gradeRequestUrl,
@@ -364,14 +367,13 @@ export default function Home() {
       },
     });
 
-    setIsGrading(true);
-    setHasWorkflowEvent(false);
-    setStatus("正在调用 Dify 工作流...");
-    setResult("");
-    setWorkflowSteps(createWorkflowSteps());
-    let latestWorkflowRunId = "";
+      setIsGrading(true);
+      setHasWorkflowEvent(false);
+      setStatus("正在调用 Dify 工作流...");
+      setResult("");
+      setWorkflowSteps(createWorkflowSteps());
+      let latestWorkflowRunId = "";
 
-    try {
       const response = await fetch(gradeRequestUrl, {
         method: "POST",
         body: formData,
@@ -435,7 +437,7 @@ export default function Home() {
         currentSteps.map((step) => ({ ...step, status: "done" })),
       );
       addHistoryItem({
-        id: crypto.randomUUID(),
+        id: safeRandomId("grading"),
         createdAt: new Date().toISOString(),
         workflowRunId: latestWorkflowRunId,
         problemFileName: questionUpload.fileName,
