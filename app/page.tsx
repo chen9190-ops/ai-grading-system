@@ -14,6 +14,7 @@ import {
   Clock3,
   FileText,
   ImageIcon,
+  LoaderCircle,
   RotateCcw,
   Satellite,
   Sparkles,
@@ -302,7 +303,7 @@ export default function Home() {
 
       setIsGrading(true);
       setGradingFailed(false);
-      setStatus("正在调用 Dify 工作流...");
+      setStatus("AI正在分析，复杂题目可能需要数分钟");
       setResult("");
       let latestWorkflowRunId = "";
       let recognizedTitle = "理论力学题目";
@@ -549,7 +550,7 @@ export default function Home() {
             </details>
 
             <div className="mt-3 rounded-2xl border border-white/45 bg-slate-200/55 p-3">
-              <div className="flex items-center justify-between gap-3"><p className="min-w-0 text-xs font-medium leading-5 text-slate-700">{status}</p><button type="button" onClick={startGrading} disabled={isGrading || !isReadyToGrade} className="shrink-0 rounded-xl bg-[#496983] px-4 py-3 text-xs font-semibold text-white shadow-[0_5px_14px_rgba(51,65,85,.2)] transition active:bg-[#3d5b73] disabled:bg-slate-300">{isGrading ? 'AI解析中...' : gradingFailed ? '重新批改' : '开始AI批改'}</button></div>
+              <div className="flex items-center justify-between gap-3"><p className="min-w-0 text-xs font-medium leading-5 text-slate-700">{status}</p><button type="button" onClick={startGrading} disabled={isGrading || !isReadyToGrade} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[#496983] px-4 py-3 text-xs font-semibold text-white shadow-[0_5px_14px_rgba(51,65,85,.2)] transition active:bg-[#3d5b73] disabled:bg-slate-300">{isGrading ? <><LoaderCircle className="size-3.5 animate-spin" />AI解析中...</> : gradingFailed ? '重新批改' : '开始AI批改'}</button></div>
             </div>
           </section>
 

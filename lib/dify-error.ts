@@ -49,7 +49,7 @@ export function mapDifyError(error: unknown): GradingErrorMapping {
     return mapping("DASHSCOPE_CONNECT_TIMEOUT", true, "阿里云模型服务连接超时，请稍后重试。", "PluginInvokeError", targetHost, true);
   }
   if (isAbortError(error) || includesAny(normalized, ["dify_request_timeout", "request timed out", "请求超时"])) {
-    return mapping("DIFY_REQUEST_TIMEOUT", true, "AI批改请求超时，请稍后重试。", "DifyRequestTimeout", targetHost, true);
+    return mapping("DIFY_REQUEST_TIMEOUT", true, "AI批改时间较长，本次请求已超时，请稍后重试。", "DifyRequestTimeout", targetHost, true);
   }
   if (status === 401 || status === 403 || includesAny(normalized, ["unauthorized", "invalid api key", "authentication failed"])) {
     return mapping("DIFY_AUTH_ERROR", false, "AI批改服务认证失败，请联系管理员。", "DifyAuthError", targetHost, false);
@@ -67,11 +67,15 @@ export function mapDifyError(error: unknown): GradingErrorMapping {
   if (normalized.includes("plugininvokeerror")) {
     return mapping("DIFY_PLUGIN_ERROR", false, "AI模型插件调用失败，请稍后重试。", "PluginInvokeError", targetHost, false);
   }
+  if (normalized.includes("client_request_aborted")) {
+    return mapping("UNKNOWN_GRADING_ERROR", false, "批改请求已取消。", "ClientRequestAborted", targetHost, false);
+  }
   return mapping("UNKNOWN_GRADING_ERROR", false, "AI批改失败，请稍后重试。", error instanceof Error ? error.name : "UnknownError", targetHost, false);
 }
 
 export function shouldRetryDifyError(error: unknown): boolean {
-  return mapDifyError(error).retryable;
+  const errorCode = mapDifyError(error).errorCode;
+  return errorCode === "DASHSCOPE_CONNECT_TIMEOUT" || errorCode === "DIFY_NETWORK_ERROR";
 }
 
 export function gradingUserMessage(payload: unknown, fallback: string): string {

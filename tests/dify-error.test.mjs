@@ -45,6 +45,26 @@ test("non-network errors do not retry", async () => {
   assert.equal(calls, 1);
 });
 
+test("a long workflow execution timeout is not automatically retried", async () => {
+  let calls = 0;
+  await assert.rejects(() => withDifyRetry(async () => {
+    calls += 1;
+    throw new DifyRequestError("DIFY_REQUEST_TIMEOUT");
+  }, { sleep: async () => undefined }));
+  assert.equal(calls, 1);
+});
+
+test("502, 503 and 504 responses still receive finite retries", async () => {
+  for (const status of [502, 503, 504]) {
+    let calls = 0;
+    await assert.rejects(() => withDifyRetry(async () => {
+      calls += 1;
+      throw new DifyRequestError("upstream unavailable", status);
+    }, { sleep: async () => undefined }));
+    assert.equal(calls, 3);
+  }
+});
+
 test("client displays the safe Chinese user message", () => {
   assert.equal(
     gradingUserMessage({ userMessage: mapDifyError(dashScopeTimeout).userMessage }, "fallback"),

@@ -14,6 +14,7 @@ import {
   mapDifyError,
   withDifyRetry,
 } from "@/lib/dify-error";
+import { createDifyTimeoutController, getDifyGradingTimeoutMs } from "@/lib/dify-timeout";
 
 type DifyUploadedFile = {
   id: string;
@@ -23,7 +24,6 @@ const allowedImageTypes = new Set(["image/jpeg", "image/png"]);
 const difyUser = "ai-grading-system";
 const textEncoder = new TextEncoder();
 const responsePreviewLength = 500;
-const difyAttemptTimeoutMs = 120 * 1000;
 const maxImageSize = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       persistGradingImage(problemImage),
       persistGradingImage(answerImage),
     ]);
-    return streamDifyWorkflow(baseUrl.replace(/\/$/, ""), apiKey, requestId, {
+    return streamDifyWorkflow(baseUrl.replace(/\/$/, ""), apiKey, requestId, request.signal, {
       problemImage,
       answerImage,
       problemImageUrl,
@@ -113,6 +113,7 @@ function streamDifyWorkflow(
   baseUrl: string,
   apiKey: string,
   requestId: string,
+  clientSignal: AbortSignal,
   files: {
     problemImage: File;
     answerImage: File;
@@ -120,36 +121,55 @@ function streamDifyWorkflow(
     answerImageUrl: string;
   },
 ) {
+  const timeoutMs = getDifyGradingTimeoutMs();
+  const startedAt = Date.now();
+  let workflowRunId = "";
+  logInfo(requestId, "Dify grading wait started", {
+    timeoutMs,
+    startedAt: new Date(startedAt).toISOString(),
+  });
   const stream = new ReadableStream({
     async start(controller) {
       try {
         const [problemFile, answerFile] = await Promise.all([
-          uploadFileToDify(baseUrl, apiKey, requestId, "problem_image", files.problemImage),
-          uploadFileToDify(baseUrl, apiKey, requestId, "answer_image", files.answerImage),
+          uploadFileToDify(baseUrl, apiKey, requestId, "problem_image", files.problemImage, clientSignal, timeoutMs),
+          uploadFileToDify(baseUrl, apiKey, requestId, "answer_image", files.answerImage, clientSignal, timeoutMs),
         ]);
         await withDifyRetry(async () => {
-          const attemptController = new AbortController();
-          const timeout = setTimeout(() => attemptController.abort(new Error("DIFY_REQUEST_TIMEOUT")), difyAttemptTimeoutMs);
+          const timeout = createDifyTimeoutController(timeoutMs);
+          const abortForClient = () => timeout.controller.abort(new Error("CLIENT_REQUEST_ABORTED"));
+          clientSignal.addEventListener("abort", abortForClient, { once: true });
+          if (clientSignal.aborted) abortForClient();
           try {
             const difyResponse = await runDifyWorkflowStream(baseUrl, apiKey, requestId, {
               problemFileId: problemFile.id,
               answerFileId: answerFile.id,
-            }, attemptController.signal);
+            }, timeout.controller.signal);
             if (!difyResponse.body) throw new DifyRequestError("Empty Dify stream");
-            await forwardDifySse(difyResponse.body, controller, requestId, { problemImageUrl: files.problemImageUrl, answerImageUrl: files.answerImageUrl });
+            await forwardDifySse(difyResponse.body, controller, requestId, { problemImageUrl: files.problemImageUrl, answerImageUrl: files.answerImageUrl }, (id) => { workflowRunId = id; });
           } catch (error) {
-            if (attemptController.signal.aborted) throw new DifyRequestError("DIFY_REQUEST_TIMEOUT");
+            if (timeout.didTimeOut()) throw new DifyRequestError("DIFY_REQUEST_TIMEOUT", undefined, workflowRunId);
+            if (clientSignal.aborted) throw new DifyRequestError("CLIENT_REQUEST_ABORTED", undefined, workflowRunId);
             throw error;
           } finally {
-            clearTimeout(timeout);
-            attemptController.abort();
+            clientSignal.removeEventListener("abort", abortForClient);
+            timeout.cleanup();
+            timeout.controller.abort();
           }
         }, {
           onRetry: (error, attempt, delayMs) => logRetry(requestId, error, attempt, delayMs),
         });
       } catch (error) {
         const mapped = mapDifyError(error);
-        logMappedError(requestId, error, mapped);
+        logMappedError(requestId, error, mapped, {
+          timeoutMs,
+          startedAt: new Date(startedAt).toISOString(),
+          elapsedMs: Date.now() - startedAt,
+          abortedByController: error instanceof DifyRequestError && error.message === "DIFY_REQUEST_TIMEOUT",
+          abortedByClient: clientSignal.aborted || (error instanceof DifyRequestError && error.message === "CLIENT_REQUEST_ABORTED"),
+          workflowRunId: workflowRunId || null,
+        });
+        if (clientSignal.aborted) return;
         controller.enqueue(
           textEncoder.encode(
             `event: error\ndata: ${JSON.stringify({
@@ -163,6 +183,13 @@ function streamDifyWorkflow(
           ),
         );
       } finally {
+        logInfo(requestId, "Dify grading wait ended", {
+          timeoutMs,
+          startedAt: new Date(startedAt).toISOString(),
+          elapsedMs: Date.now() - startedAt,
+          abortedByClient: clientSignal.aborted,
+          workflowRunId: workflowRunId || null,
+        });
         controller.close();
       }
     },
@@ -185,6 +212,8 @@ async function uploadFileToDify(
   requestId: string,
   field: "problem_image" | "answer_image",
   file: File,
+  clientSignal: AbortSignal,
+  timeoutMs: number,
 ): Promise<DifyUploadedFile> {
   logInfo(requestId, "Dify file upload started", {
     field,
@@ -208,7 +237,7 @@ async function uploadFileToDify(
         throw new DifyRequestError(getDifyErrorMessage("Dify file upload failed", data), currentResponse.status);
       }
       return { response: currentResponse, data };
-    });
+    }, timeoutMs, clientSignal);
   }, {
     onRetry: (error, attempt, delayMs) => logRetry(requestId, error, attempt, delayMs),
   });
@@ -285,6 +314,7 @@ async function forwardDifySse(
   controller: ReadableStreamDefaultController,
   requestId: string,
   media: { problemImageUrl: string; answerImageUrl: string },
+  onWorkflowRunId: (workflowRunId: string) => void,
 ) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -303,6 +333,7 @@ async function forwardDifySse(
       if (done) {
         const decoderTail = decoder.decode();
         for (const event of parser.push(decoderTail)) {
+          captureWorkflowRunId(event.payload, onWorkflowRunId);
           const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult, media);
           streamedText = state.streamedText;
           nodeResult = state.nodeResult;
@@ -320,6 +351,7 @@ async function forwardDifySse(
         responsePreview += decodedChunk.slice(0, responsePreviewLength - responsePreview.length);
       }
       for (const event of parser.push(decodedChunk)) {
+        captureWorkflowRunId(event.payload, onWorkflowRunId);
         const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult, media);
         streamedText = state.streamedText;
         nodeResult = state.nodeResult;
@@ -331,6 +363,7 @@ async function forwardDifySse(
     }
 
     for (const event of parser.finish()) {
+      captureWorkflowRunId(event.payload, onWorkflowRunId);
       const state = handleDifyEvent(event, controller, requestId, streamedText, nodeResult, media);
       if (state.workflowFinished) {
         workflowFinished = true;
@@ -459,6 +492,11 @@ function getWorkflowRunId(payload: unknown) {
   return typeof id === "string" ? id : "";
 }
 
+function captureWorkflowRunId(payload: unknown, onWorkflowRunId: (workflowRunId: string) => void) {
+  const workflowRunId = getWorkflowRunId(payload);
+  if (workflowRunId) onWorkflowRunId(workflowRunId);
+}
+
 function enqueueSse(
   controller: ReadableStreamDefaultController,
   event: string,
@@ -556,17 +594,25 @@ function getDifyErrorMessage(prefix: string, data: unknown) {
   return prefix;
 }
 
-async function withDifyAttemptTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error("DIFY_REQUEST_TIMEOUT")), difyAttemptTimeoutMs);
+async function withDifyAttemptTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  clientSignal: AbortSignal,
+): Promise<T> {
+  const timeout = createDifyTimeoutController(timeoutMs);
+  const abortForClient = () => timeout.controller.abort(new Error("CLIENT_REQUEST_ABORTED"));
+  clientSignal.addEventListener("abort", abortForClient, { once: true });
+  if (clientSignal.aborted) abortForClient();
   try {
-    return await operation(controller.signal);
+    return await operation(timeout.controller.signal);
   } catch (error) {
-    if (controller.signal.aborted) throw new DifyRequestError("DIFY_REQUEST_TIMEOUT");
+    if (timeout.didTimeOut()) throw new DifyRequestError("DIFY_REQUEST_TIMEOUT");
+    if (clientSignal.aborted) throw new DifyRequestError("CLIENT_REQUEST_ABORTED");
     throw error;
   } finally {
-    clearTimeout(timeout);
-    controller.abort();
+    clientSignal.removeEventListener("abort", abortForClient);
+    timeout.cleanup();
+    timeout.controller.abort();
   }
 }
 
@@ -592,13 +638,14 @@ function logRetry(requestId: string, error: unknown, attempt: number, delayMs: n
   });
 }
 
-function logMappedError(requestId: string, error: unknown, mapped = mapDifyError(error)) {
+function logMappedError(requestId: string, error: unknown, mapped = mapDifyError(error), timing?: Record<string, unknown>) {
   logError(requestId, "Dify request chain failed", {
     workflowRunId: error instanceof DifyRequestError ? error.workflowRunId ?? null : null,
     error_type: mapped.errorType,
     targetHost: mapped.targetHost,
     timeout: mapped.timeout,
     errorPreview: safePreview(error instanceof Error ? error.message : String(error)),
+    ...timing,
   });
 }
 

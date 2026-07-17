@@ -53,3 +53,28 @@ bash scripts/check-dashscope-connectivity.sh
 - 容器出网路由
 - 阿里云安全组出站 443 规则
 - 宿主机和容器防火墙
+
+## 长时间批改请求
+
+复杂题目的 Dify Workflow 可能运行 3～6 分钟。应用默认等待 360 秒，可通过环境变量调整：
+
+```bash
+DIFY_GRADING_TIMEOUT_MS=360000
+```
+
+如果经过 Nginx、PM2 或阿里云负载均衡代理，还需要确认代理没有使用更短的请求超时。Nginx 可参考以下配置；请先确认实际站点配置文件和部署拓扑，不要直接覆盖服务器配置：
+
+```nginx
+proxy_connect_timeout 60s;
+proxy_send_timeout 360s;
+proxy_read_timeout 360s;
+```
+
+生产排查时同时检查：
+
+- `nginx -T` 中实际生效的 `proxy_connect_timeout`、`proxy_send_timeout`、`proxy_read_timeout`
+- PM2 启动参数、进程环境变量及 Node/Next.js 外层请求超时
+- 阿里云负载均衡实例的连接空闲超时
+- Dify 网关、worker 和 plugin daemon 自身的任务超时
+
+应用执行超时不会自动重新提交整个 Workflow，避免重复任务和重复计费；只有明确的连接错误或 HTTP 502、503、504 才会有限重试。
