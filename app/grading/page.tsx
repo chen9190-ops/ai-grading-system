@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
@@ -10,6 +10,8 @@ import {
   Bookmark,
   CheckCircle2,
   ImageIcon,
+  LoaderCircle,
+  RotateCcw,
   Send,
   Share2,
   Sparkles,
@@ -20,8 +22,12 @@ import {
   isReasonableGradingText,
   splitGradingReport,
 } from "@/lib/grading-report";
+import { withBasePath } from "@/lib/base-path";
+import { buildFollowupRequest, gradingFollowupApiPath, type FollowupMessage } from "@/lib/grading-followup-core";
+import { safeRandomId } from "@/lib/safe-random-id";
 
 type GradingResult = {
+  gradingId: string;
   requestId: string;
   markdown: string;
   createdAt: string;
@@ -38,6 +44,8 @@ type GradingResult = {
   improvement: string;
 };
 
+type ChatMessage = FollowupMessage & { id: string };
+
 const gradingResultStorageKey = "ai-grading-current-result";
 
 export default function GradingPage() {
@@ -46,7 +54,10 @@ export default function GradingPage() {
   const [loaded, setLoaded] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [question, setQuestion] = useState("");
-  const [sentQuestion, setSentQuestion] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isAsking, setIsAsking] = useState(false);
+  const [followupError, setFollowupError] = useState<{ message: string; requestId: string; question: string } | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -55,16 +66,39 @@ export default function GradingPage() {
     });
   }, []);
 
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [messages, isAsking, followupError]);
+
   const sections = useMemo(() => splitGradingReport(data?.markdown ?? ""), [data]);
   const isCorrect = data?.score === null || data?.score === undefined ? null : data.score >= 6;
 
-  function submitQuestion() {
-    const nextQuestion = question.trim();
-
-    if (!nextQuestion) return;
-
-    setSentQuestion(nextQuestion);
+  async function submitQuestion(quickQuestion?: string, isRetry = false) {
+    const nextQuestion = (quickQuestion ?? question).trim();
+    if (!nextQuestion || isAsking || !data?.gradingId) return;
+    const priorHistory = messages.map(({ role, content }) => ({ role, content }));
+    if (!isRetry) setMessages((current) => [...current, { id: safeRandomId("followup-user"), role: "user", content: nextQuestion }]);
     setQuestion("");
+    setFollowupError(null);
+    setIsAsking(true);
+    try {
+      const response = await fetch(withBasePath(gradingFollowupApiPath), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildFollowupRequest(nextQuestion, data.gradingId, priorHistory)),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isRecord(payload) || typeof payload.answer !== "string" || !payload.answer.trim()) {
+        throw new FollowupClientError(isRecord(payload) && typeof payload.error === "string" ? payload.error : "AI 追问暂时无法响应，请稍后重试", isRecord(payload) && typeof payload.requestId === "string" ? payload.requestId : "unknown");
+      }
+      const answer = payload.answer.trim();
+      setMessages((current) => [...current, { id: safeRandomId("followup-assistant"), role: "assistant", content: answer }]);
+    } catch (error) {
+      setQuestion(nextQuestion);
+      setFollowupError({ message: error instanceof Error ? error.message : "AI 追问暂时无法响应，请稍后重试", requestId: error instanceof FollowupClientError ? error.requestId : "unknown", question: nextQuestion });
+    } finally {
+      setIsAsking(false);
+    }
   }
 
   async function shareResult() {
@@ -147,15 +181,19 @@ export default function GradingPage() {
             </div>
           </section>
 
-          {sentQuestion ? <div className="ml-auto max-w-[85%] rounded-[18px_18px_4px_18px] bg-blue-600 px-4 py-3 text-sm leading-6 text-white shadow-md">{sentQuestion}<p className="mt-1 text-[10px] text-blue-200">追问功能即将开放</p></div> : null}
+          <section>
+            <SectionTitle eyebrow="Follow-up assistant" title="AI 助手" />
+            {!data.gradingId ? <div className="rounded-[20px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">未找到当前批改上下文</div> : null}
+            {messages.length || isAsking || followupError ? <div className="space-y-3 rounded-[22px] border border-white/80 bg-white/75 p-3 shadow-[0_7px_20px_rgba(30,41,59,.07)]">{messages.map((message) => message.role === "user" ? <div key={message.id} className="ml-auto max-w-[85%] rounded-[18px_18px_4px_18px] bg-blue-600 px-4 py-3 text-sm leading-6 text-white shadow-sm">{message.content}</div> : <div key={message.id} className="mr-auto max-w-[92%] rounded-[18px_18px_18px_4px] bg-slate-100 px-4 py-2"><GradingMarkdown content={message.content} /></div>)}{isAsking ? <div className="flex w-fit items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-xs text-slate-500"><LoaderCircle className="size-4 animate-spin" />AI 正在思考...</div> : null}{followupError ? <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-700"><p>{followupError.message}</p><p className="mt-1 text-[10px] text-red-500">requestId: {followupError.requestId}</p><button type="button" onClick={() => void submitQuestion(followupError.question, true)} disabled={isAsking} className="mt-2 flex items-center gap-1 font-semibold"><RotateCcw className="size-3.5" />重新发送</button></div> : null}<div ref={chatEndRef} /></div> : null}
+          </section>
         </div>
 
         <div className="fixed inset-x-0 bottom-[70px] z-30 mx-auto w-full max-w-[430px] border-t border-slate-200/80 bg-white/90 px-4 pb-3 pt-3 shadow-[0_-8px_28px_rgba(15,23,42,.08)] backdrop-blur-xl">
           <div className="flex items-center gap-2 rounded-[20px] border border-slate-200 bg-[#f5f6f8] p-1.5 pl-4 focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100/60">
-            <input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitQuestion(); }} placeholder="请输入你的问题..." className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" />
-            <button type="button" onClick={submitQuestion} disabled={!question.trim()} aria-label="发送追问" className="grid size-10 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-md disabled:bg-slate-300"><Send className="size-[18px]" /></button>
+            <textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitQuestion(); } }} disabled={!data.gradingId || isAsking} maxLength={2000} rows={1} placeholder={data.gradingId ? "请输入你的问题..." : "未找到当前批改上下文"} className="max-h-24 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-slate-400 disabled:cursor-not-allowed" />
+            <button type="button" onClick={() => void submitQuestion()} disabled={!data.gradingId || isAsking || !question.trim()} aria-label="发送追问" className="grid size-10 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-md disabled:bg-slate-300">{isAsking ? <LoaderCircle className="size-[18px] animate-spin" /> : <Send className="size-[18px]" />}</button>
           </div>
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5 text-[10px] text-slate-500"><button type="button" onClick={() => setQuestion("为什么这里取这个方向？")} className="shrink-0 rounded-full bg-slate-100 px-3 py-1.5">为什么这里取这个方向？</button><button type="button" onClick={() => setQuestion("还有其他方法吗？")} className="shrink-0 rounded-full bg-slate-100 px-3 py-1.5">还有其他方法吗？</button></div>
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5 text-[10px] text-slate-500"><button type="button" onClick={() => void submitQuestion("为什么这里取这个方向？")} disabled={!data.gradingId || isAsking} className="shrink-0 rounded-full bg-slate-100 px-3 py-1.5 disabled:opacity-50">为什么这里取这个方向？</button><button type="button" onClick={() => void submitQuestion("还有其他方法吗？")} disabled={!data.gradingId || isAsking} className="shrink-0 rounded-full bg-slate-100 px-3 py-1.5 disabled:opacity-50">还有其他方法吗？</button></div>
         </div>
     </MobileShell>
   );
@@ -178,8 +216,19 @@ function readGradingResult(): GradingResult | null {
     const markdown = cleanGradingMarkdown(candidate);
     const validMarkdown = isReasonableGradingText(markdown) ? markdown : "";
     const storedScore = typeof parsed.score === "number" && parsed.score >= 0 && parsed.score <= 10 ? parsed.score : null;
-    return { requestId: typeof parsed.requestId === "string" ? parsed.requestId : "", markdown: validMarkdown, createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : "", workflowRunId: typeof parsed.workflowRunId === "string" ? parsed.workflowRunId : "", maxScore: 10, questionImage: typeof parsed.questionImage === "string" ? parsed.questionImage : "", questionFileName: typeof parsed.questionFileName === "string" ? parsed.questionFileName : "", score: storedScore ?? extractScore(validMarkdown), questionType: typeof parsed.questionType === "string" ? parsed.questionType : "理论力学", difficulty: typeof parsed.difficulty === "number" ? parsed.difficulty : 3, knowledgePoints: Array.isArray(parsed.knowledgePoints) ? parsed.knowledgePoints.filter((item): item is string => typeof item === "string") : [], errorLocation: typeof parsed.errorLocation === "string" ? parsed.errorLocation : "", errorReason: typeof parsed.errorReason === "string" ? parsed.errorReason : "", improvement: typeof parsed.improvement === "string" ? parsed.improvement : "" };
+    return { gradingId: typeof parsed.gradingId === "string" ? parsed.gradingId : "", requestId: typeof parsed.requestId === "string" ? parsed.requestId : "", markdown: validMarkdown, createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : "", workflowRunId: typeof parsed.workflowRunId === "string" ? parsed.workflowRunId : "", maxScore: 10, questionImage: typeof parsed.questionImage === "string" ? parsed.questionImage : "", questionFileName: typeof parsed.questionFileName === "string" ? parsed.questionFileName : "", score: storedScore ?? extractScore(validMarkdown), questionType: typeof parsed.questionType === "string" ? parsed.questionType : "理论力学", difficulty: typeof parsed.difficulty === "number" ? parsed.difficulty : 3, knowledgePoints: Array.isArray(parsed.knowledgePoints) ? parsed.knowledgePoints.filter((item): item is string => typeof item === "string") : [], errorLocation: typeof parsed.errorLocation === "string" ? parsed.errorLocation : "", errorReason: typeof parsed.errorReason === "string" ? parsed.errorReason : "", improvement: typeof parsed.improvement === "string" ? parsed.improvement : "" };
   } catch {
     return null;
   }
+}
+
+class FollowupClientError extends Error {
+  constructor(message: string, readonly requestId: string) {
+    super(message);
+    this.name = "FollowupClientError";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

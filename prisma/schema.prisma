@@ -20,19 +20,20 @@ enum AIConversationType {
 }
 
 model User {
-  id              String           @id @default(cuid())
-  name            String
-  email           String           @unique
-  password        String
-  role            UserRole
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  studentProfile  StudentProfile?
-  teacherProfile  TeacherProfile?
-  submissions     Submission[]
-  examPapers      ExamPaper[]      @relation("ExamPaperTeacher")
-  conversations   AIConversation[]
-  teachingReports TeachingReport[] @relation("TeachingReportTeacher")
+  id                   String                @id @default(cuid())
+  name                 String
+  email                String                @unique
+  password             String
+  role                 UserRole
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  studentProfile       StudentProfile?
+  teacherProfile       TeacherProfile?
+  submissions          Submission[]
+  examPapers           ExamPaper[]           @relation("ExamPaperTeacher")
+  conversations        AIConversation[]
+  teachingReports      TeachingReport[]      @relation("TeachingReportTeacher")
+  gradingConversations GradingConversation[]
 
   @@index([role])
 }
@@ -67,35 +68,36 @@ model Course {
 }
 
 model Submission {
-  id               String   @id @default(cuid())
-  requestId        String?
-  workflowRunId    String?
-  title            String?
-  problemImageUrl  String?
-  answerImageUrl   String?
-  studentName      String   @default("匿名学生")
-  studentId        String?
-  courseName       String   @default("工程课程")
-  className        String?
-  problemImageName String
-  answerImageName  String
-  problemOcr       String?  @db.Text
-  answerOcr        String?  @db.Text
-  problemDiagram   String?  @db.Text
-  answerDiagram    String?  @db.Text
-  gradingResult    String   @db.Text
-  score            Float?
-  firstError       String?  @db.Text
-  errorType        String?
-  knowledgePoint   String?
-  assignmentName   String?
-  problemImages    Json?
-  answerImages     Json?
-  aiResult         Json?
-  feedback         String?  @db.Text
-  userId           String?
-  student          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  createdAt        DateTime @default(now())
+  id                   String                @id @default(cuid())
+  requestId            String?
+  workflowRunId        String?
+  title                String?
+  problemImageUrl      String?
+  answerImageUrl       String?
+  studentName          String                @default("匿名学生")
+  studentId            String?
+  courseName           String                @default("工程课程")
+  className            String?
+  problemImageName     String
+  answerImageName      String
+  problemOcr           String?               @db.Text
+  answerOcr            String?               @db.Text
+  problemDiagram       String?               @db.Text
+  answerDiagram        String?               @db.Text
+  gradingResult        String                @db.Text
+  score                Float?
+  firstError           String?               @db.Text
+  errorType            String?
+  knowledgePoint       String?
+  assignmentName       String?
+  problemImages        Json?
+  answerImages         Json?
+  aiResult             Json?
+  feedback             String?               @db.Text
+  userId               String?
+  student              User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt            DateTime              @default(now())
+  gradingConversations GradingConversation[]
 
   @@index([createdAt])
   @@index([studentId])
@@ -105,6 +107,31 @@ model Submission {
   @@index([userId])
   @@index([requestId])
   @@index([workflowRunId])
+}
+
+model GradingConversation {
+  id        String           @id @default(cuid())
+  gradingId String
+  userId    String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  grading   Submission       @relation(fields: [gradingId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  GradingMessage[]
+
+  @@unique([gradingId, userId])
+  @@index([userId, updatedAt])
+}
+
+model GradingMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  role           String
+  content        String              @db.Text
+  createdAt      DateTime            @default(now())
+  conversation   GradingConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
 }
 
 model ExamPaper {

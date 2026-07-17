@@ -390,6 +390,7 @@ export default function Home() {
       }
 
       saveGradingResult({
+        gradingId: savedSubmission?.id ?? "",
         requestId: gradingRequestId,
         markdown: normalizedResult,
         createdAt,
@@ -778,6 +779,7 @@ function extractKnowledgePoints(value: string) {
 }
 
 function saveGradingResult(payload: {
+  gradingId: string;
   requestId: string;
   markdown: string;
   createdAt: string;

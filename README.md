@@ -78,3 +78,14 @@ proxy_read_timeout 360s;
 - Dify 网关、worker 和 plugin daemon 自身的任务超时
 
 应用执行超时不会自动重新提交整个 Workflow，避免重复任务和重复计费；只有明确的连接错误或 HTTP 502、503、504 才会有限重试。
+
+## 批改结果追问 Chatflow
+
+批改后的 AI 助手使用独立的 Dify Chatflow，不会再次调用完整批改 Workflow。生产环境需要配置：
+
+```bash
+DIFY_FOLLOWUP_API_URL=https://api.dify.ai/v1/chat-messages
+DIFY_FOLLOWUP_API_KEY=app-xxxxxxxx
+```
+
+对应 Chatflow 应声明这些 inputs：`question_text`、`student_answer`、`grading_report`、`score`、`subject`、`error_analysis`、`scoring_advice`、`conversation_history`、`system_instruction`。学生当前追问通过 Dify 的 `query` 字段传入。
