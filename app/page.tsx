@@ -27,6 +27,7 @@ import {
 } from "@/lib/grading-report";
 import { formatScoreWithMaximum, scoreProgress } from "@/lib/score-scale";
 import { gradingHistoryPath } from "@/lib/grading-history";
+import { gradingUserMessage } from "@/lib/dify-error";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -73,6 +74,7 @@ export default function Home() {
   const [status, setStatus] = useState("等待上传题目与学生答案");
   const [, setResult] = useState("");
   const [isGrading, setIsGrading] = useState(false);
+  const [gradingFailed, setGradingFailed] = useState(false);
   const [history, setHistory] = useState<GradeHistoryItem[]>([]);
   const [studentName, setStudentName] = useState("匿名学生");
   const [studentId, setStudentId] = useState("");
@@ -299,6 +301,7 @@ export default function Home() {
     });
 
       setIsGrading(true);
+      setGradingFailed(false);
       setStatus("正在调用 Dify 工作流...");
       setResult("");
       let latestWorkflowRunId = "";
@@ -425,6 +428,7 @@ export default function Home() {
       });
       setStatus(`批改失败：${errorMessage}`);
       setResult(errorMessage);
+      setGradingFailed(true);
     } finally {
       setIsGrading(false);
     }
@@ -545,7 +549,7 @@ export default function Home() {
             </details>
 
             <div className="mt-3 rounded-2xl border border-white/45 bg-slate-200/55 p-3">
-              <div className="flex items-center justify-between gap-3"><p className="min-w-0 truncate text-xs font-medium text-slate-700">{status}</p><button type="button" onClick={startGrading} disabled={isGrading || !isReadyToGrade} className="shrink-0 rounded-xl bg-[#496983] px-4 py-3 text-xs font-semibold text-white shadow-[0_5px_14px_rgba(51,65,85,.2)] transition active:bg-[#3d5b73] disabled:bg-slate-300">{isGrading ? 'AI解析中...' : '开始AI批改'}</button></div>
+              <div className="flex items-center justify-between gap-3"><p className="min-w-0 text-xs font-medium leading-5 text-slate-700">{status}</p><button type="button" onClick={startGrading} disabled={isGrading || !isReadyToGrade} className="shrink-0 rounded-xl bg-[#496983] px-4 py-3 text-xs font-semibold text-white shadow-[0_5px_14px_rgba(51,65,85,.2)] transition active:bg-[#3d5b73] disabled:bg-slate-300">{isGrading ? 'AI解析中...' : gradingFailed ? '重新批改' : '开始AI批改'}</button></div>
             </div>
           </section>
 
@@ -660,17 +664,17 @@ function extractStreamError(payload: unknown) {
     getRecordValue(payload, "error") ??
     getRecordValue(data, "message") ??
     getRecordValue(data, "error");
-  return typeof message === "string" && message.trim()
+  return gradingUserMessage(payload, typeof message === "string" && message.trim()
     ? message
-    : "AI分析超时或服务繁忙，请重试";
+    : "AI分析超时或服务繁忙，请重试");
 }
 
 async function readGradeError(response: Response) {
   const payload: unknown = await response.json().catch(() => null);
   const message = getRecordValue(payload, "error") ?? getRecordValue(payload, "message");
-  return typeof message === "string" && message.trim()
+  return gradingUserMessage(payload, typeof message === "string" && message.trim()
     ? message
-    : `AI批改请求失败（${response.status}）`;
+    : `AI批改请求失败（${response.status}）`);
 }
 
 function normalizeReportMarkdown(value: string): string {

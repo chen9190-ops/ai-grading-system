@@ -9,6 +9,11 @@ import {
   selectGradingReport,
 } from "@/lib/grading-report";
 import { selectQuestionTitle } from "@/lib/grading-title";
+import {
+  DifyRequestError,
+  mapDifyError,
+  withDifyRetry,
+} from "@/lib/dify-error";
 
 type DifyUploadedFile = {
   id: string;
@@ -17,10 +22,8 @@ type DifyUploadedFile = {
 const allowedImageTypes = new Set(["image/jpeg", "image/png"]);
 const difyUser = "ai-grading-system";
 const textEncoder = new TextEncoder();
-const publicStreamErrorMessage = "AI分析超时或服务繁忙，请重试";
-const timeoutErrorMessage = "AI批改超时，请稍后重试";
 const responsePreviewLength = 500;
-const gradingTimeoutMs = 10 * 60 * 1000;
+const difyAttemptTimeoutMs = 120 * 1000;
 const maxImageSize = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
@@ -38,7 +41,7 @@ export async function POST(request: Request) {
   if (!apiKey || !baseUrl) {
     logError(requestId, "Dify configuration missing");
     return Response.json(
-      { error: "Missing DIFY_API_KEY or DIFY_BASE_URL" },
+      gradingErrorResponse(requestId, new DifyRequestError("Dify authentication configuration missing", 401)),
       { status: 500, headers: requestIdHeaders(requestId) },
     );
   }
@@ -49,7 +52,7 @@ export async function POST(request: Request) {
   } catch (error) {
     logError(requestId, "submission form data parse failed", errorDetails(error));
     return Response.json(
-      { error: "Invalid multipart form data" },
+      { success: false, requestId, errorCode: "UNKNOWN_GRADING_ERROR", retryable: false, userMessage: "上传数据格式错误。" },
       { status: 400, headers: requestIdHeaders(requestId) },
     );
   }
@@ -67,7 +70,7 @@ export async function POST(request: Request) {
       answerImage: fileDetails(answerImage),
     });
     return Response.json(
-      { error: "problem_image and answer_image must be JPG, JPEG, or PNG files" },
+      { success: false, requestId, errorCode: "UNKNOWN_GRADING_ERROR", retryable: false, userMessage: "题目和答案必须是有效的 JPG、JPEG 或 PNG 图片。" },
       { status: 400, headers: requestIdHeaders(requestId) },
     );
   }
@@ -86,9 +89,7 @@ export async function POST(request: Request) {
   } catch (error) {
     logError(requestId, "grade stream creation failed", errorDetails(error));
     return Response.json(
-      {
-        error: publicStreamErrorMessage,
-      },
+      gradingErrorResponse(requestId, error),
       { status: 502, headers: requestIdHeaders(requestId) },
     );
   }
@@ -121,39 +122,47 @@ function streamDifyWorkflow(
 ) {
   const stream = new ReadableStream({
     async start(controller) {
-      const abortController = new AbortController();
-      const timeout = setTimeout(() => abortController.abort(), gradingTimeoutMs);
-
       try {
         const [problemFile, answerFile] = await Promise.all([
-          uploadFileToDify(baseUrl, apiKey, requestId, "problem_image", files.problemImage, abortController.signal),
-          uploadFileToDify(baseUrl, apiKey, requestId, "answer_image", files.answerImage, abortController.signal),
+          uploadFileToDify(baseUrl, apiKey, requestId, "problem_image", files.problemImage),
+          uploadFileToDify(baseUrl, apiKey, requestId, "answer_image", files.answerImage),
         ]);
-        const difyResponse = await runDifyWorkflowStream(baseUrl, apiKey, requestId, {
-          problemFileId: problemFile.id,
-          answerFileId: answerFile.id,
-        }, abortController.signal);
-
-        if (!difyResponse.body) {
-          throw new Error("Empty Dify stream");
-        }
-
-        await forwardDifySse(difyResponse.body, controller, requestId, { problemImageUrl: files.problemImageUrl, answerImageUrl: files.answerImageUrl });
+        await withDifyRetry(async () => {
+          const attemptController = new AbortController();
+          const timeout = setTimeout(() => attemptController.abort(new Error("DIFY_REQUEST_TIMEOUT")), difyAttemptTimeoutMs);
+          try {
+            const difyResponse = await runDifyWorkflowStream(baseUrl, apiKey, requestId, {
+              problemFileId: problemFile.id,
+              answerFileId: answerFile.id,
+            }, attemptController.signal);
+            if (!difyResponse.body) throw new DifyRequestError("Empty Dify stream");
+            await forwardDifySse(difyResponse.body, controller, requestId, { problemImageUrl: files.problemImageUrl, answerImageUrl: files.answerImageUrl });
+          } catch (error) {
+            if (attemptController.signal.aborted) throw new DifyRequestError("DIFY_REQUEST_TIMEOUT");
+            throw error;
+          } finally {
+            clearTimeout(timeout);
+            attemptController.abort();
+          }
+        }, {
+          onRetry: (error, attempt, delayMs) => logRetry(requestId, error, attempt, delayMs),
+        });
       } catch (error) {
-        logError(requestId, "Dify request chain failed", errorDetails(error));
-        const message = abortController.signal.aborted
-          ? timeoutErrorMessage
-          : getPublicErrorMessage(error);
+        const mapped = mapDifyError(error);
+        logMappedError(requestId, error, mapped);
         controller.enqueue(
           textEncoder.encode(
             `event: error\ndata: ${JSON.stringify({
               event: "error",
-              message,
+              success: false,
+              requestId,
+              errorCode: mapped.errorCode,
+              retryable: mapped.retryable,
+              userMessage: mapped.userMessage,
             })}\n\n`,
           ),
         );
       } finally {
-        clearTimeout(timeout);
         controller.close();
       }
     },
@@ -176,28 +185,35 @@ async function uploadFileToDify(
   requestId: string,
   field: "problem_image" | "answer_image",
   file: File,
-  signal: AbortSignal,
 ): Promise<DifyUploadedFile> {
-  const body = new FormData();
-  body.append("file", file);
-  body.append("user", difyUser);
-
   logInfo(requestId, "Dify file upload started", {
     field,
     size: file.size,
     mimeType: file.type,
   });
 
-  const response = await fetch(`${baseUrl}/files/upload`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body,
-    signal,
+  const uploadResult = await withDifyRetry(async () => {
+    const currentBody = new FormData();
+    currentBody.append("file", file);
+    currentBody.append("user", difyUser);
+    return withDifyAttemptTimeout(async (signal) => {
+      const currentResponse = await fetch(`${baseUrl}/files/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: currentBody,
+        signal,
+      });
+      const data = await readJson(currentResponse);
+      if ([502, 503, 504].includes(currentResponse.status)) {
+        throw new DifyRequestError(getDifyErrorMessage("Dify file upload failed", data), currentResponse.status);
+      }
+      return { response: currentResponse, data };
+    });
+  }, {
+    onRetry: (error, attempt, delayMs) => logRetry(requestId, error, attempt, delayMs),
   });
 
-  const data = await readJson(response);
+  const { response, data } = uploadResult;
   logInfo(requestId, "Dify file upload returned", {
     field,
     status: response.status,
@@ -205,11 +221,11 @@ async function uploadFileToDify(
   });
 
   if (!response.ok) {
-    throw new Error(getDifyErrorMessage("Dify file upload failed", data));
+    throw new DifyRequestError(getDifyErrorMessage("Dify file upload failed", data), response.status);
   }
 
   if (!isDifyUploadedFile(data)) {
-    throw new Error("Dify file upload response missing file id");
+    throw new DifyRequestError("Dify file upload response missing file id");
   }
 
   return data;
@@ -258,7 +274,7 @@ async function runDifyWorkflowStream(
     logInfo(requestId, "Dify workflow response preview", {
       responsePreview: safePreview(data),
     });
-    throw new Error(getDifyErrorMessage("Dify workflow run failed", data));
+    throw new DifyRequestError(getDifyErrorMessage("Dify workflow run failed", data), response.status);
   }
 
   return response;
@@ -326,6 +342,12 @@ async function forwardDifySse(
       throw new Error("Dify 流已结束，但没有最终批改结果");
     }
   } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // The upstream stream may already be closed or aborted.
+    }
+    reader.releaseLock();
     logInfo(requestId, "Dify stream ended", {
       normalEnd,
       workflowFinished,
@@ -348,13 +370,21 @@ function handleDifyEvent(
   logInfo(requestId, "Dify SSE event", { event: event.event });
 
   if (event.event === "workflow_failed" || event.event === "error") {
-    throw new Error(extractDifyEventError(event.payload) || "Dify workflow 执行失败");
+    throw new DifyRequestError(
+      extractDifyEventError(event.payload) || "Dify workflow 执行失败",
+      undefined,
+      getWorkflowRunId(event.payload),
+    );
   }
   if (
     event.event === "workflow_finished" &&
     getRecordValue(getRecordValue(event.payload, "data"), "status") === "failed"
   ) {
-    throw new Error(extractDifyEventError(event.payload) || "Dify workflow 执行失败");
+    throw new DifyRequestError(
+      extractDifyEventError(event.payload) || "Dify workflow 执行失败",
+      undefined,
+      getWorkflowRunId(event.payload),
+    );
   }
 
   let nextStreamedText = streamedText;
@@ -380,7 +410,7 @@ function handleDifyEvent(
       hadThinkBlock: selected.hadThinkBlock || /<think>[\s\S]*?<\/think>/i.test(nextStreamedText),
     });
     if (!finalResult) {
-      throw new Error(`未能读取 AI 批改正文，请使用 requestId ${requestId} 联系管理员。`);
+      throw new DifyRequestError("DIFY_NO_GRADING_OUTPUT", undefined, getWorkflowRunId(event.payload));
     }
     logInfo(requestId, "Dify workflow_finished processed", {
       workflowFinished: true,
@@ -455,18 +485,14 @@ function safePreview(value: unknown) {
 function redactSecrets(value: string) {
   return value
     .replace(/(authorization["'\s:]*)bearer\s+[^\s"']+/gi, "$1[REDACTED]")
-    .replace(/((?:api[_-]?key|token|secret)["'\s:=]+)[^\s,"'}]+/gi, "$1[REDACTED]");
+    .replace(/((?:api[_-]?key|token|secret)["'\s:=]+)[^\s,"'}]+/gi, "$1[REDACTED]")
+    .replace(/((?:cookie|set-cookie)["'\s:=]+)[^\r\n]+/gi, "$1[REDACTED]");
 }
 
 function errorDetails(error: unknown) {
   return error instanceof Error
     ? { name: error.name, message: redactSecrets(error.message) }
     : { message: redactSecrets(String(error)) };
-}
-
-function getPublicErrorMessage(error: unknown) {
-  if (!(error instanceof Error) || !error.message.trim()) return publicStreamErrorMessage;
-  return redactSecrets(error.message);
 }
 
 function extractDifyEventError(payload: unknown) {
@@ -526,6 +552,52 @@ function getDifyErrorMessage(prefix: string, data: unknown) {
   }
 
   return prefix;
+}
+
+async function withDifyAttemptTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("DIFY_REQUEST_TIMEOUT")), difyAttemptTimeoutMs);
+  try {
+    return await operation(controller.signal);
+  } catch (error) {
+    if (controller.signal.aborted) throw new DifyRequestError("DIFY_REQUEST_TIMEOUT");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+}
+
+function gradingErrorResponse(requestId: string, error: unknown) {
+  const mapped = mapDifyError(error);
+  return {
+    success: false,
+    requestId,
+    errorCode: mapped.errorCode,
+    retryable: mapped.retryable,
+    userMessage: mapped.userMessage,
+  };
+}
+
+function logRetry(requestId: string, error: unknown, attempt: number, delayMs: number) {
+  const mapped = mapDifyError(error);
+  logInfo(requestId, "Dify retry scheduled", {
+    attempt,
+    delayMs,
+    error_type: mapped.errorType,
+    targetHost: mapped.targetHost,
+    timeout: mapped.timeout,
+  });
+}
+
+function logMappedError(requestId: string, error: unknown, mapped = mapDifyError(error)) {
+  logError(requestId, "Dify request chain failed", {
+    workflowRunId: error instanceof DifyRequestError ? error.workflowRunId ?? null : null,
+    error_type: mapped.errorType,
+    targetHost: mapped.targetHost,
+    timeout: mapped.timeout,
+    errorPreview: safePreview(error instanceof Error ? error.message : String(error)),
+  });
 }
 
 function getRecordValue(value: unknown, key: string) {

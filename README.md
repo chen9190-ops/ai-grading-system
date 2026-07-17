@@ -37,3 +37,19 @@ npm run lint
 npx tsc --noEmit
 npm run build
 ```
+
+## DashScope 生产网络诊断
+
+Dify 报告 `PluginInvokeError`、`HTTPSConnectionPool` 或连接 `dashscope.aliyuncs.com` 超时时，先在应用宿主机执行：
+
+```bash
+bash scripts/check-dashscope-connectivity.sh
+```
+
+代码只能识别错误、有限重试并向用户返回可操作的提示，不能修复服务器或容器的出网问题。如果宿主机可以访问 DashScope，但 Dify 无法访问，请在 Dify worker 和 plugin daemon 容器内执行同样的 DNS 与 HTTPS 检查，并排查：
+
+- Docker DNS 配置
+- 容器代理及代理变量是否正确传入
+- 容器出网路由
+- 阿里云安全组出站 443 规则
+- 宿主机和容器防火墙
