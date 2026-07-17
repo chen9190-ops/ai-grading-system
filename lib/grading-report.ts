@@ -1,11 +1,28 @@
 const outputFieldPriority = [
   "result",
-  "text",
+  "grading_report",
+  "report",
+  "markdown",
   "answer",
+  "text",
   "output",
   "content",
-  "markdown",
+  "note_text",
+  "direct_text",
+  "reference_text",
 ] as const;
+
+const excludedOutputFields = new Set([
+  "created_at",
+  "timestamp",
+  "id",
+  "request_id",
+  "workflow_run_id",
+  "status",
+  "score",
+  "tokens",
+  "elapsed_time",
+]);
 
 const gradingKeywords = ["题目理解", "评分建议", "学生答案", "标准解法", "第一处实质性错误"];
 const minimumReportLength = 50;
@@ -25,34 +42,47 @@ export type GradingReportSection = {
   markdown: string;
 };
 
+export type ExtractedGradingContent = {
+  markdown: string;
+  sourceField: string | null;
+  availableKeys: string[];
+  hadThinkBlock: boolean;
+};
+
 export function selectGradingReport(outputs: unknown): SelectedGradingReport {
-  const outputKeys = isRecord(outputs) ? Object.keys(outputs) : [];
-
-  for (const field of outputFieldPriority) {
-    const rawText = getKnownText(isRecord(outputs) ? outputs[field] : undefined);
-    if (!rawText) continue;
-    const markdown = cleanGradingMarkdown(rawText);
-    if (!isReasonableGradingText(markdown)) continue;
-
-    return {
-      markdown,
-      score: extractScore(markdown),
-      maxScore: 10,
-      outputKeys,
-      selectedOutputField: field,
-      selectedTextLength: markdown.length,
-      hadThinkBlock: /<think>[\s\S]*?<\/think>/i.test(rawText),
-    };
-  }
+  const extracted = extractGradingContent(outputs);
+  if (extracted.markdown) return {
+    markdown: extracted.markdown,
+    score: extractScore(extracted.markdown),
+    maxScore: 10,
+    outputKeys: extracted.availableKeys,
+    selectedOutputField: extracted.sourceField,
+    selectedTextLength: extracted.markdown.length,
+    hadThinkBlock: extracted.hadThinkBlock,
+  };
 
   return {
     markdown: "",
     score: null,
     maxScore: 10,
-    outputKeys,
+    outputKeys: extracted.availableKeys,
     selectedOutputField: null,
     selectedTextLength: 0,
     hadThinkBlock: false,
+  };
+}
+
+export function extractGradingContent(outputs: unknown): ExtractedGradingContent {
+  const parsedOutputs = parseJsonObject(outputs) ?? outputs;
+  const availableKeys = isRecord(parsedOutputs) ? Object.keys(parsedOutputs) : [];
+  const candidate = findKnownContent(parsedOutputs, "", 0);
+  if (!candidate) return { markdown: "", sourceField: null, availableKeys, hadThinkBlock: false };
+
+  return {
+    markdown: cleanGradingMarkdown(candidate.text),
+    sourceField: candidate.path,
+    availableKeys,
+    hadThinkBlock: /<think>[\s\S]*?<\/think>/i.test(candidate.text),
   };
 }
 
@@ -130,13 +160,48 @@ export function splitGradingReport(markdown: string): GradingReportSection[] {
   return sections.filter((section) => section.markdown);
 }
 
-function getKnownText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (!isRecord(value)) return "";
+function findKnownContent(value: unknown, parentPath: string, depth: number): { text: string; path: string } | null {
+  const parsed = parseJsonObject(value) ?? value;
+  if (!isRecord(parsed) || depth > 2) return null;
+
   for (const field of outputFieldPriority) {
-    if (typeof value[field] === "string") return value[field];
+    const candidate = parsed[field];
+    const path = parentPath ? `${parentPath}.${field}` : field;
+    if (typeof candidate === "string") {
+      const parsedCandidate = parseJsonObject(candidate);
+      if (parsedCandidate && depth < 2) {
+        const nested = findKnownContent(parsedCandidate, path, depth + 1);
+        if (nested) return nested;
+      }
+      const markdown = cleanGradingMarkdown(candidate);
+      if (isReasonableGradingText(markdown)) return { text: candidate, path };
+    } else if (isRecord(candidate) && depth < 2) {
+      const nested = findKnownContent(candidate, path, depth + 1);
+      if (nested) return nested;
+    }
   }
-  return "";
+
+  if (depth >= 2) return null;
+  for (const [field, candidate] of Object.entries(parsed)) {
+    if (excludedOutputFields.has(field) || outputFieldPriority.includes(field as typeof outputFieldPriority[number])) continue;
+    const nestedValue = parseJsonObject(candidate) ?? candidate;
+    if (!isRecord(nestedValue)) continue;
+    const path = parentPath ? `${parentPath}.${field}` : field;
+    const nested = findKnownContent(nestedValue, path, depth + 1);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+  if (isRecord(value)) return value;
+  if (typeof value !== "string" || !value.trim().startsWith("{")) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function getRecordValue(value: unknown, key: string) {

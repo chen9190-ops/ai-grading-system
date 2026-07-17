@@ -404,10 +404,12 @@ function handleDifyEvent(
     const selectedOutputField = selected.markdown ? selected.selectedOutputField : finalResult ? "text_chunk" : null;
     logInfo(requestId, "Dify grading output selected", {
       requestId,
-      outputKeys: selected.outputKeys,
-      selectedOutputField,
-      selectedTextLength: finalResult.length,
+      workflowRunId: getWorkflowRunId(event.payload) || null,
+      availableOutputKeys: selected.outputKeys,
+      selectedSourceField: selectedOutputField,
+      selectedContentLength: finalResult.length,
       hadThinkBlock: selected.hadThinkBlock || /<think>[\s\S]*?<\/think>/i.test(nextStreamedText),
+      outputsPreview: safePreview(outputs),
     });
     if (!finalResult) {
       throw new DifyRequestError("DIFY_NO_GRADING_OUTPUT", undefined, getWorkflowRunId(event.payload));
