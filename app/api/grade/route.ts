@@ -435,6 +435,7 @@ function handleDifyEvent(
       isReasonableGradingText(streamedMarkdown) ? streamedMarkdown : ""
     );
     const selectedOutputField = selected.markdown ? selected.selectedOutputField : finalResult ? "text_chunk" : null;
+    logWorkflowFinishedDiagnostics(requestId, event.payload, outputs, selected, streamedMarkdown, finalResult);
     logInfo(requestId, "Dify grading output selected", {
       requestId,
       workflowRunId: getWorkflowRunId(event.payload) || null,
@@ -445,6 +446,10 @@ function handleDifyEvent(
       outputsPreview: safePreview(outputs),
     });
     if (!finalResult) {
+      logError(requestId, "DIFY_NO_GRADING_OUTPUT diagnostics", {
+        workflowRunId: getWorkflowRunId(event.payload) || null,
+        reason: explainMissingGradingOutput(outputs, selected.outputKeys, streamedMarkdown),
+      });
       throw new DifyRequestError("DIFY_NO_GRADING_OUTPUT", undefined, getWorkflowRunId(event.payload));
     }
     logInfo(requestId, "Dify workflow_finished processed", {
@@ -481,6 +486,48 @@ function extractTextChunk(payload: unknown) {
   const data = getRecordValue(payload, "data");
   const text = getRecordValue(data, "text") ?? getRecordValue(payload, "text");
   return typeof text === "string" ? text : "";
+}
+
+function logWorkflowFinishedDiagnostics(
+  requestId: string,
+  payload: unknown,
+  outputs: unknown,
+  selected: ReturnType<typeof selectGradingReport>,
+  streamedMarkdown: string,
+  finalResult: string,
+) {
+  const data = getRecordValue(payload, "data");
+  const outputEntries = isRecord(outputs)
+    ? Object.entries(outputs).map(([key, value]) => ({
+        key,
+        type: value === null ? "null" : Array.isArray(value) ? "object" : typeof value,
+        stringPreview: typeof value === "string"
+          ? redactSecrets(value.slice(0, 200))
+          : undefined,
+      }))
+    : [];
+
+  logInfo(requestId, "Dify workflow_finished diagnostics", {
+    requestId,
+    workflowRunId: getWorkflowRunId(payload) || null,
+    workflowStatus: getRecordValue(data, "status") ?? getRecordValue(payload, "status") ?? null,
+    availableOutputKeys: outputEntries.map((entry) => entry.key),
+    outputFields: outputEntries,
+    extractGradingContentSourceField: selected.selectedOutputField,
+    selectedContentLength: selected.selectedTextLength,
+    textChunkFallbackMatched: !selected.markdown && Boolean(finalResult),
+    textChunkLength: streamedMarkdown.length,
+  });
+}
+
+function explainMissingGradingOutput(outputs: unknown, availableKeys: string[], streamedMarkdown: string) {
+  if (outputs === null || outputs === undefined) return "workflow_finished did not contain outputs";
+  if (!isRecord(outputs) && typeof outputs !== "string") return `outputs had unsupported type: ${typeof outputs}`;
+  if (availableKeys.length === 0 && typeof outputs !== "string") return "outputs object had no first-level keys";
+  if (streamedMarkdown && !isReasonableGradingText(streamedMarkdown)) {
+    return "no supported output field contained reasonable grading text; text_chunk fallback was present but did not meet grading text validation";
+  }
+  return "no supported output field contained non-empty reasonable grading text, and no valid text_chunk fallback was available";
 }
 
 function getWorkflowRunId(payload: unknown) {
