@@ -10,6 +10,39 @@ const requiredStringFields = [
   "gradingResult",
 ] as const;
 
+export async function GET() {
+  try {
+    const session = await getCurrentSession();
+    if (!session) return Response.json({ error: "未登录" }, { status: 401 });
+    if (session.role !== "student" && session.role !== "admin") {
+      return Response.json({ error: "无权查看学生批改记录" }, { status: 403 });
+    }
+
+    const submissions = await prisma.submission.findMany({
+      where: { userId: session.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        courseName: true,
+        assignmentName: true,
+        problemImageName: true,
+        gradingResult: true,
+        score: true,
+        firstError: true,
+        errorType: true,
+        knowledgePoint: true,
+        createdAt: true,
+      },
+    });
+
+    return Response.json({ submissions });
+  } catch (error) {
+    console.error("Failed to load student submissions", error);
+    return Response.json({ error: "批改记录加载失败" }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const session = await getCurrentSession();

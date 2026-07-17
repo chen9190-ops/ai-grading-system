@@ -8,7 +8,7 @@ export async function GET() {
     const session = await getCurrentSession();
     if (!session) return Response.json({ success: false, data: null, error: "未登录" }, { status: 401 });
 
-    const [user, scoreStats, recentErrors, recentScores] = await Promise.all([
+    const [user, scoreStats, latestSubmission] = await Promise.all([
       prisma.user.findUnique({
         where: { id: session.id },
         select: {
@@ -21,17 +21,10 @@ export async function GET() {
         },
       }),
       prisma.submission.aggregate({ where: { userId: session.id }, _avg: { score: true } }),
-      prisma.submission.findMany({
-        where: { userId: session.id, firstError: { not: null } },
+      prisma.submission.findFirst({
+        where: { userId: session.id },
         orderBy: { createdAt: "desc" },
-        take: 3,
-        select: { id: true, courseName: true, knowledgePoint: true, errorType: true, score: true, createdAt: true },
-      }),
-      prisma.submission.findMany({
-        where: { userId: session.id, score: { not: null } },
-        orderBy: { createdAt: "desc" },
-        take: 3,
-        select: { id: true, courseName: true, score: true, createdAt: true },
+        select: { courseName: true },
       }),
     ]);
     if (!user) return Response.json({ success: false, data: null, error: "用户档案不存在" }, { status: 404 });
@@ -45,9 +38,7 @@ export async function GET() {
           completedGradings: _count.submissions,
           averageScore: scoreStats._avg.score,
           aiLearningCount: _count.conversations,
-          currentCourse: recentScores[0]?.courseName ?? null,
-          recentScores,
-          recentErrors,
+          currentCourse: latestSubmission?.courseName ?? null,
         },
       },
       error: null,

@@ -44,8 +44,6 @@ type StudentLearningStats = {
   averageScore: number | null;
   aiLearningCount: number;
   currentCourse: string | null;
-  recentScores: Array<{ id: string; courseName: string; score: number; createdAt: string }>;
-  recentErrors: Array<{ id: string; courseName: string; knowledgePoint: string | null; errorType: string | null; score: number | null }>;
 };
 type GradeHistoryItem = {
   id: string;
@@ -79,7 +77,7 @@ export default function Home() {
   const [studentId, setStudentId] = useState("");
   const [courseName, setCourseName] = useState("工程课程");
   const [className, setClassName] = useState("");
-  const [learningStats, setLearningStats] = useState<StudentLearningStats>({ completedGradings: 0, averageScore: null, aiLearningCount: 0, currentCourse: null, recentScores: [], recentErrors: [] });
+  const [learningStats, setLearningStats] = useState<StudentLearningStats>({ completedGradings: 0, averageScore: null, aiLearningCount: 0, currentCourse: null });
 
   useEffect(() => {
     let isActive = true;
@@ -115,8 +113,6 @@ export default function Home() {
             averageScore: typeof stats.averageScore === "number" ? stats.averageScore : null,
             aiLearningCount: typeof stats.aiLearningCount === "number" ? stats.aiLearningCount : 0,
             currentCourse: typeof stats.currentCourse === "string" ? stats.currentCourse : null,
-            recentScores: Array.isArray(stats.recentScores) ? stats.recentScores.filter(isRecentScore) : [],
-            recentErrors: Array.isArray(stats.recentErrors) ? stats.recentErrors.filter(isStudentError) : [],
           });
           if (typeof stats.currentCourse === "string") setCourseName(stats.currentCourse);
         }
@@ -538,33 +534,18 @@ export default function Home() {
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                {[[String(learningStats.completedGradings),'批改次数'],[String(learningStats.aiLearningCount),'AI学习'],[formatScoreWithMaximum(learningStats.recentScores[0]?.score),'最近成绩']].map(([value,label]) => (
+                {[[String(learningStats.completedGradings),'批改次数'],[String(learningStats.aiLearningCount),'AI学习'],[learningStats.currentCourse || '--','当前课程']].map(([value,label]) => (
                   <div key={label} className="border-l border-slate-300/70 first:border-0">
                     <strong className="text-base">{value}</strong>
                     <p className="mt-1 text-[9px] text-slate-500">{label}</p>
-                    {label === "最近成绩" ? <p className="mt-0.5 text-[8px] text-slate-400">满分 10 分</p> : null}
                   </div>
                 ))}
               </div>
             </div>
-          </section>
-
-          <section>
-            <div className="mb-3 px-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">Recent scores</p><h2 className="mt-0.5 text-lg font-bold">最近成绩 <span className="text-xs font-normal text-slate-400">（满分10分）</span></h2></div>
-            <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)]">
-              {learningStats.recentScores.length ? learningStats.recentScores.map((item, index) => (
-                <div key={item.id} className={`flex min-w-0 items-center gap-3 p-3 ${index ? "border-t border-slate-100" : ""}`}>
-                  <span className="grid min-w-14 shrink-0 place-items-center rounded-xl bg-blue-50 px-2 py-3 text-xs font-bold text-blue-600">{formatScoreWithMaximum(item.score)}</span>
-                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.courseName}</p><p className="mt-1 text-[10px] text-slate-400">{formatRecentDate(item.createdAt)} · AI 批改已完成</p></div>
-                  <span className="shrink-0 text-xs font-medium text-emerald-600">已归档</span>
-                </div>
-              )) : <div className="px-5 py-7 text-center"><p className="text-sm font-medium text-slate-600">还没有成绩记录</p><p className="mt-1 text-xs text-slate-400">上传题目和答案完成首次 AI 批改后，这里会展示学习成果。</p></div>}
+            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-slate-200/70 pt-4">
+              <button type="button" onClick={() => router.push("/practice")} className="rounded-xl bg-blue-50 px-3 py-2.5 text-xs font-semibold text-blue-600">查看成绩分析</button>
+              <button type="button" onClick={() => router.push("/errors")} className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-700">查看错题本</button>
             </div>
-          </section>
-
-          <section>
-            <div className="mb-3 px-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">Recent errors</p><h2 className="mt-0.5 text-lg font-bold">最近错题</h2></div>
-            <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)]">{learningStats.recentErrors.length ? learningStats.recentErrors.map((item, index) => <div key={item.id} className={`flex items-center gap-3 p-3 ${index ? "border-t border-slate-100" : ""}`}><span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><BookOpen className="size-5" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.knowledgePoint || item.courseName}</p><p className="mt-1 text-[10px] text-slate-400">{item.courseName} · {item.errorType || "待复盘"}</p></div><strong className="text-sm text-blue-600">{formatScoreWithMaximum(item.score)}</strong></div>) : <div className="px-5 py-7 text-center text-xs text-slate-400">暂无错题记录，继续保持。</div>}</div>
           </section>
 
           <section className="rounded-[24px] border border-white/55 bg-[#dfe4e8]/72 p-3 shadow-[0_10px_28px_rgba(51,65,85,.11)] backdrop-blur-xl">
@@ -1013,6 +994,7 @@ async function saveSubmission(input: {
     firstError: extractReportField(input.gradingResult, [
       "首个错误",
       "第一处错误",
+      "第一处实质性错误",
       "首次错误",
     ]),
     errorType: extractReportField(input.gradingResult, ["错误类型", "错误分类"]),
@@ -1089,18 +1071,6 @@ function saveHistorySafely(history: GradeHistoryItem[]) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isStudentError(value: unknown): value is StudentLearningStats["recentErrors"][number] {
-  return isRecord(value) && typeof value.id === "string" && typeof value.courseName === "string";
-}
-
-function isRecentScore(value: unknown): value is StudentLearningStats["recentScores"][number] {
-  return isRecord(value) && typeof value.id === "string" && typeof value.courseName === "string" && typeof value.score === "number" && typeof value.createdAt === "string";
-}
-
-function formatRecentDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
 function matchWorkflowStepLabel(payload: unknown): string | null {

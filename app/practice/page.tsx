@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import {
   ArrowRight,
@@ -9,6 +10,7 @@ import {
   BrainCircuit,
   Dumbbell,
   FileClock,
+  LineChart,
   Layers3,
   LoaderCircle,
   Send,
@@ -26,6 +28,18 @@ type HistoryItem = {
   problemFileName: string;
   resultPreview: string;
   score?: string;
+  courseName: string;
+  gradingResult: string;
+  knowledgePoint: string | null;
+};
+type SubmissionPayload = {
+  id: string;
+  createdAt: string;
+  problemImageName: string;
+  gradingResult: string;
+  courseName: string;
+  score: number | null;
+  knowledgePoint: string | null;
 };
 
 type Course = {
@@ -35,7 +49,7 @@ type Course = {
   icon: typeof Atom;
 };
 
-const historyStorageKey = "ai-grading-history";
+const gradingResultStorageKey = "ai-grading-current-result";
 const courses: Course[] = [
   { name: "理论力学", description: "静力学 · 运动学 · 动力学", keywords: ["理论力学", "静力学", "运动学", "动力学", "力矩"], icon: Atom },
   { name: "材料力学", description: "应力 · 变形 · 强度", keywords: ["材料力学", "应力", "应变", "梁", "弯曲"], icon: Layers3 },
@@ -44,6 +58,7 @@ const courses: Course[] = [
 const quickOptions = ["期末复习", "章节强化", "薄弱提升"];
 
 export default function PracticePage() {
+  const router = useRouter();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -52,16 +67,54 @@ export default function PracticePage() {
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      setHistory(readHistory());
-      setLoaded(true);
-    });
+    let active = true;
+    void fetch(withBasePath("/api/submissions"), { cache: "no-store" })
+      .then(async (response) => {
+        const payload: unknown = await response.json();
+        if (!response.ok || !isRecord(payload) || !Array.isArray(payload.submissions)) throw new Error("成绩数据加载失败");
+        return payload.submissions.filter(isSubmission).map((item) => ({
+          id: item.id,
+          createdAt: item.createdAt,
+          problemFileName: item.problemImageName,
+          resultPreview: item.gradingResult,
+          score: item.score === null ? undefined : `${item.score}/10`,
+          courseName: item.courseName,
+          gradingResult: item.gradingResult,
+          knowledgePoint: item.knowledgePoint,
+        }));
+      })
+      .then((items) => { if (active) setHistory(items); })
+      .catch(() => { if (active) setNotice("成绩数据加载失败，请稍后重试"); })
+      .finally(() => { if (active) setLoaded(true); });
+    return () => { active = false; };
   }, []);
 
   const mastery = useMemo(() => courses.map((course) => ({
     course,
     ...calculateCourseMastery(course, history),
   })), [history]);
+  const scoredHistory = useMemo(() => history.filter((item) => parseScore(item.score) !== null), [history]);
+  const averageScore = useMemo(() => scoredHistory.length ? scoredHistory.reduce((sum, item) => sum + (parseScore(item.score) ?? 0), 0) / scoredHistory.length : null, [scoredHistory]);
+
+  function viewSubmission(item: HistoryItem) {
+    window.sessionStorage.setItem(gradingResultStorageKey, JSON.stringify({
+      requestId: item.id,
+      markdown: item.gradingResult,
+      createdAt: item.createdAt,
+      workflowRunId: "",
+      maxScore: 10,
+      questionImage: "",
+      questionFileName: item.problemFileName,
+      score: parseScore(item.score),
+      questionType: item.courseName,
+      difficulty: 3,
+      knowledgePoints: item.knowledgePoint ? [item.knowledgePoint] : [],
+      errorLocation: "",
+      errorReason: "",
+      improvement: "",
+    }));
+    router.push("/grading");
+  }
 
   async function generatePractice() {
     const message = prompt.trim();
@@ -104,6 +157,25 @@ export default function PracticePage() {
           <div className="absolute -bottom-16 -right-10 size-44 rounded-full border border-white/10" />
           <div className="relative flex items-start gap-4"><span className="grid size-12 shrink-0 place-items-center rounded-2xl border border-blue-300/20 bg-blue-400/15 text-blue-300"><BrainCircuit className="size-6" /></span><div><p className="text-[9px] font-semibold uppercase tracking-[.18em] text-blue-300">Personalized practice</p><h1 className="mt-1.5 text-xl font-bold">智能专项训练</h1><p className="mt-2 text-xs leading-5 text-slate-300">根据你的学习情况生成个性化训练。</p></div></div>
           <div className="relative mt-5 flex items-center gap-2 border-t border-white/10 pt-4 text-[10px] text-slate-400"><Sparkles className="size-3.5 text-blue-300" />结合历史解析记录评估课程掌握程度</div>
+        </section>
+
+        <section>
+          <SectionTitle eyebrow="Score analysis" title="成绩分析" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-[22px] border border-white/80 bg-white/82 p-4 shadow-[0_8px_24px_rgba(30,41,59,.07)]"><p className="text-[10px] text-slate-400">平均成绩（满分10分）</p><p className="mt-2 text-2xl font-bold text-blue-600">{loaded ? formatScoreWithMaximum(averageScore) : "--"}</p></div>
+            <div className="rounded-[22px] border border-white/80 bg-white/82 p-4 shadow-[0_8px_24px_rgba(30,41,59,.07)]"><p className="text-[10px] text-slate-400">批改次数</p><p className="mt-2 text-2xl font-bold text-slate-800">{loaded ? history.length : "--"}<span className="ml-1 text-xs font-medium text-slate-400">次</span></p></div>
+          </div>
+          <div className="mt-3 rounded-[22px] border border-white/80 bg-white/82 p-4 shadow-[0_8px_24px_rgba(30,41,59,.07)]">
+            <div className="flex items-center gap-2"><LineChart className="size-4 text-blue-600" /><h3 className="text-sm font-bold">成绩趋势</h3></div>
+            {scoredHistory.length ? <div className="mt-4 flex h-28 items-end gap-2">{scoredHistory.slice(0, 8).reverse().map((item) => <div key={item.id} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"><span className="text-[8px] text-slate-400">{parseScore(item.score)}</span><div className="w-full rounded-t bg-gradient-to-t from-blue-600 to-cyan-400" style={{ height: `${Math.max(4, scoreProgress(parseScore(item.score)) * 88)}px` }} /></div>)}</div> : <p className="mt-4 text-center text-xs text-slate-400">暂无成绩趋势数据</p>}
+          </div>
+        </section>
+
+        <section>
+          <SectionTitle eyebrow="Recent scores" title="最近成绩（满分10分）" />
+          <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/82 shadow-[0_8px_24px_rgba(30,41,59,.07)]">
+            {loaded && scoredHistory.length ? scoredHistory.slice(0, 8).map((item, index) => <button type="button" key={item.id} onClick={() => viewSubmission(item)} className={`flex w-full items-center gap-3 px-4 py-3 text-left ${index ? "border-t border-slate-100" : ""}`}><span className="min-w-16 text-sm font-bold text-blue-600">{formatScoreWithMaximum(parseScore(item.score))}</span><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{item.courseName}</strong><span className="mt-1 block truncate text-[10px] text-slate-400">{item.problemFileName} · {formatDate(item.createdAt)}</span></span><ArrowRight className="size-4 shrink-0 text-slate-300" /></button>) : loaded ? <div className="px-5 py-8 text-center text-xs text-slate-400">暂无成绩记录，完成首次 AI 批改后将在这里显示。</div> : <div className="h-24 animate-pulse bg-white/50" />}
+          </div>
         </section>
 
         <section>
@@ -159,20 +231,13 @@ function getMasteryLabel(score: number) {
   return "建议强化";
 }
 
-function readHistory(): HistoryItem[] {
-  try {
-    const stored = window.localStorage.getItem(historyStorageKey);
-    const parsed: unknown = stored ? JSON.parse(stored) : [];
-    return Array.isArray(parsed) ? parsed.filter(isHistoryItem) : [];
-  } catch {
-    return [];
-  }
+function isSubmission(value: unknown): value is SubmissionPayload {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && typeof value.createdAt === "string" && typeof value.problemImageName === "string" && typeof value.gradingResult === "string" && typeof value.courseName === "string" && (value.score === null || typeof value.score === "number") && (value.knowledgePoint === null || typeof value.knowledgePoint === "string");
 }
 
-function isHistoryItem(value: unknown): value is HistoryItem {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<HistoryItem>;
-  return typeof item.id === "string" && typeof item.createdAt === "string" && typeof item.problemFileName === "string" && typeof item.resultPreview === "string" && (item.score === undefined || typeof item.score === "string");
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
