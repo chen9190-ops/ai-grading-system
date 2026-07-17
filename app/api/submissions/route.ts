@@ -84,6 +84,8 @@ export async function POST(request: Request) {
 
     const submission = await prisma.submission.create({
       data: {
+        requestId: asNullableString(body.requestId),
+        workflowRunId: asNullableString(body.workflowRunId),
         studentName: sessionUser.name,
         studentId: sessionUser.studentProfile?.studentId ?? asNullableString(body.studentId),
         courseName: asString(body.courseName) || "工程课程",

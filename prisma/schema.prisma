@@ -68,6 +68,8 @@ model Course {
 
 model Submission {
   id               String   @id @default(cuid())
+  requestId        String?
+  workflowRunId    String?
   studentName      String   @default("匿名学生")
   studentId        String?
   courseName       String   @default("工程课程")
@@ -98,6 +100,8 @@ model Submission {
   @@index([errorType])
   @@index([knowledgePoint])
   @@index([userId])
+  @@index([requestId])
+  @@index([workflowRunId])
 }
 
 model ExamPaper {

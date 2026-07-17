@@ -7,6 +7,7 @@ import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
 import { withBasePath } from "@/lib/base-path";
 import { formatScoreWithMaximum } from "@/lib/score-scale";
+import { gradingHistoryPath } from "@/lib/grading-history";
 
 type Submission = {
   id: string;
@@ -20,8 +21,6 @@ type Submission = {
   knowledgePoint: string | null;
   createdAt: string;
 };
-
-const gradingResultStorageKey = "ai-grading-current-result";
 
 export default function ErrorsPage() {
   const router = useRouter();
@@ -46,23 +45,7 @@ export default function ErrorsPage() {
   const errors = useMemo(() => submissions.filter((item) => Boolean(item.firstError || item.errorType)), [submissions]);
 
   function viewSubmission(item: Submission) {
-    window.sessionStorage.setItem(gradingResultStorageKey, JSON.stringify({
-      requestId: item.id,
-      markdown: item.gradingResult,
-      createdAt: item.createdAt,
-      workflowRunId: "",
-      maxScore: 10,
-      questionImage: "",
-      questionFileName: item.problemImageName,
-      score: item.score,
-      questionType: item.courseName,
-      difficulty: 3,
-      knowledgePoints: item.knowledgePoint ? [item.knowledgePoint] : [],
-      errorLocation: item.firstError ?? "",
-      errorReason: item.errorType ?? "",
-      improvement: "",
-    }));
-    router.push("/grading");
+    router.push(gradingHistoryPath(item.id));
   }
 
   return (

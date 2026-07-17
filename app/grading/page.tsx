@@ -4,10 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
-import ReactMarkdown from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import remarkMath from "remark-math";
-import "katex/dist/katex.min.css";
+import GradingMarkdown from "../components/GradingMarkdown";
 import {
   AlertCircle,
   Bookmark,
@@ -133,9 +130,9 @@ export default function GradingPage() {
             {!data.markdown ? (
               <div className="rounded-[20px] border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700">未能读取 AI 批改正文，请使用 requestId {data.requestId || "unknown"} 联系管理员。</div>
             ) : sections.length ? (
-              <div className="space-y-3">{sections.map((section, index) => <article key={`${section.title}-${index}`} className="overflow-hidden rounded-[20px] border border-white/80 bg-white/85 p-4 shadow-[0_7px_20px_rgba(30,41,59,.07)] backdrop-blur-md"><h3 className="mb-3 text-sm font-bold text-slate-800">{section.title}</h3><ResultMarkdown content={section.markdown} /></article>)}</div>
+              <div className="space-y-3">{sections.map((section, index) => <article key={`${section.title}-${index}`} className="overflow-hidden rounded-[20px] border border-white/80 bg-white/85 p-4 shadow-[0_7px_20px_rgba(30,41,59,.07)] backdrop-blur-md"><h3 className="mb-3 text-sm font-bold text-slate-800">{section.title}</h3><GradingMarkdown content={section.markdown} /></article>)}</div>
             ) : (
-              <article className="overflow-hidden rounded-[20px] border border-white/80 bg-white/85 p-4 shadow-[0_7px_20px_rgba(30,41,59,.07)] backdrop-blur-md"><ResultMarkdown content={data.markdown} /></article>
+              <article className="overflow-hidden rounded-[20px] border border-white/80 bg-white/85 p-4 shadow-[0_7px_20px_rgba(30,41,59,.07)] backdrop-blur-md"><GradingMarkdown content={data.markdown} /></article>
             )}
           </section>
 
@@ -170,10 +167,6 @@ function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
 
 function InfoItem({ label, value }: { label: string; value: string }) {
   return <div><p className="text-[10px] text-slate-400">{label}</p><p className="mt-1 text-sm font-semibold">{value}</p></div>;
-}
-
-function ResultMarkdown({ content }: { content: string }) {
-  return <div className="min-w-0 overflow-x-auto"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{ p: ({ children }) => <p className="my-2 whitespace-pre-wrap text-[13px] leading-6 text-slate-600">{children}</p>, ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 text-[13px] leading-6 text-slate-600">{children}</ul>, ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5 text-[13px] leading-6 text-slate-600">{children}</ol>, h1: ({ children }) => <h3 className="my-3 text-base font-bold">{children}</h3>, h2: ({ children }) => <h3 className="my-3 text-base font-bold">{children}</h3>, h3: ({ children }) => <h4 className="my-2 text-sm font-bold">{children}</h4>, pre: ({ children }) => <pre className="my-3 overflow-x-auto rounded-xl bg-slate-950 p-3 text-xs leading-5 text-slate-100">{children}</pre>, code: ({ children }) => <code className="rounded bg-slate-100 px-1 text-blue-700">{children}</code> }}>{content}</ReactMarkdown></div>;
 }
 
 function readGradingResult(): GradingResult | null {

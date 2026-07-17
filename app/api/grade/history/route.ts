@@ -1,59 +1,90 @@
-import { selectGradingReport } from "@/lib/grading-report";
+import { randomUUID } from "node:crypto";
+import { prisma } from "@/lib/prisma";
+import { getCurrentSession } from "@/lib/session";
+import { canAccessGradingRecord, extractStoredGradingReport, normalizeStoredScore } from "@/lib/grading-history";
 
-const unavailableMessage = "历史记录详情暂时无法获取，请重新批改。";
+export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const apiKey = process.env.DIFY_API_KEY;
-  const baseUrl = process.env.DIFY_BASE_URL;
+  const logRequestId = randomUUID();
   const { searchParams } = new URL(request.url);
-  const workflowRunId = searchParams.get("id");
-
-  if (!apiKey || !baseUrl || !workflowRunId) {
-    return Response.json({ error: unavailableMessage }, { status: 400 });
-  }
+  const databaseId = searchParams.get("id");
+  console.info(`[grading-history][api][${logRequestId}] detail request received`, { databaseId: databaseId ?? null });
 
   try {
-    const response = await fetch(
-      `${baseUrl.replace(/\/$/, "")}/workflows/run/${encodeURIComponent(
-        workflowRunId,
-      )}`,
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
+    const session = await getCurrentSession();
+    if (!session) return fail(logRequestId, databaseId, "session", "unauthenticated", 401, "未登录");
+    if (session.role !== "student") return fail(logRequestId, databaseId, "authorization", "forbidden_role", 403, "无权查看该历史记录");
+
+    if (!databaseId) return listHistory(session.id, logRequestId);
+
+    console.info(`[grading-history][api][${logRequestId}] record lookup started`, { databaseId });
+    const record = await prisma.submission.findUnique({
+      where: { id: databaseId },
+      select: {
+        id: true,
+        userId: true,
+        requestId: true,
+        workflowRunId: true,
+        assignmentName: true,
+        courseName: true,
+        score: true,
+        gradingResult: true,
+        aiResult: true,
+        createdAt: true,
+        problemImageName: true,
+        answerImageName: true,
+        problemImages: true,
+        answerImages: true,
       },
-    );
-
-    if (!response.ok) {
-      return Response.json({ error: unavailableMessage }, { status: 502 });
-    }
-
-    const data = await response.json();
-    const workflowData = getRecordValue(data, "data") ?? data;
-    const selected = selectGradingReport(getRecordValue(workflowData, "outputs"));
-    if (!selected.markdown) {
-      console.error("history grading output missing", {
-        workflowRunId,
-        outputKeys: selected.outputKeys,
-      });
-      return Response.json({ error: unavailableMessage }, { status: 502 });
-    }
-
-    return Response.json({
-      markdown: selected.markdown,
-      score: selected.score,
-      maxScore: 10,
-      workflowRunId,
     });
-  } catch {
-    return Response.json({ error: unavailableMessage }, { status: 502 });
+
+    if (!record) return fail(logRequestId, databaseId, "lookup", "not_found", 404, "历史记录不存在");
+    if (!canAccessGradingRecord(session.id, record.userId)) return fail(logRequestId, databaseId, "authorization", "record_owner_mismatch", 403, "无权查看该历史记录");
+    console.info(`[grading-history][api][${logRequestId}] record found`, { databaseId, recordRequestId: record.requestId });
+
+    const markdown = extractStoredGradingReport(record);
+    console.info(`[grading-history][api][${logRequestId}] report extracted`, { databaseId, hasReport: Boolean(markdown), reportLength: markdown.length });
+    const payload = {
+      id: record.id,
+      requestId: record.requestId,
+      workflowRunId: record.workflowRunId,
+      title: record.assignmentName || record.problemImageName,
+      courseName: record.courseName,
+      score: normalizeStoredScore(record.score),
+      maxScore: 10,
+      markdown,
+      createdAt: record.createdAt,
+      problemImageUrl: firstImage(record.problemImages),
+      answerImageUrl: firstImage(record.answerImages),
+    };
+    console.info(`[grading-history][api][${logRequestId}] response sent`, { databaseId, status: 200 });
+    return Response.json(payload);
+  } catch (error) {
+    return fail(logRequestId, databaseId, "unexpected", error instanceof Error ? error.name : "unknown", 500, "历史记录加载失败");
   }
 }
 
-function getRecordValue(value: unknown, key: string) {
-  if (typeof value !== "object" || value === null || !(key in value)) {
-    return undefined;
-  }
+async function listHistory(userId: string, logRequestId: string) {
+  const records = await prisma.submission.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    select: { id: true, requestId: true, assignmentName: true, problemImageName: true, courseName: true, score: true, gradingResult: true, aiResult: true, createdAt: true },
+  });
+  const history = records.map((record) => {
+    const markdown = extractStoredGradingReport(record);
+    return { id: record.id, requestId: record.requestId, title: record.assignmentName || record.problemImageName, courseName: record.courseName, score: normalizeStoredScore(record.score), maxScore: 10, createdAt: record.createdAt, hasReport: Boolean(markdown) };
+  });
+  console.info(`[grading-history][api][${logRequestId}] response sent`, { status: 200, recordCount: history.length });
+  return Response.json({ history });
+}
 
-  return (value as Record<string, unknown>)[key];
+function firstImage(value: unknown): string | null {
+  return Array.isArray(value) && typeof value[0] === "string" ? value[0] : null;
+}
+
+function fail(requestId: string, databaseId: string | null, stage: string, errorType: string, status: number, message: string) {
+  console.error(`[grading-history][api][${requestId}] request failed`, { databaseId, stage, errorType, status });
+  return Response.json({ error: message, requestId }, { status });
 }

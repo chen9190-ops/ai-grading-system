@@ -20,12 +20,12 @@ import {
 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { DifySseParser } from "@/lib/dify-sse";
-import { safeRandomId } from "@/lib/safe-random-id";
 import {
   extractScore,
   selectGradingReportFromPayload,
 } from "@/lib/grading-report";
 import { formatScoreWithMaximum, scoreProgress } from "@/lib/score-scale";
+import { gradingHistoryPath } from "@/lib/grading-history";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -47,16 +47,16 @@ type StudentLearningStats = {
 };
 type GradeHistoryItem = {
   id: string;
+  requestId: string | null;
+  title: string;
+  courseName: string;
   createdAt: string;
-  workflowRunId?: string;
-  problemFileName: string;
-  answerFileName: string;
-  resultPreview: string;
-  score?: string;
+  score: number | null;
+  maxScore: 10;
+  hasReport: boolean;
 };
 const allowedImageTypes = new Set(["image/jpeg", "image/jpg", "image/png"]);
 const allowedImageNamePattern = /\.(?:jpe?g|png)$/i;
-const historyStorageKey = "ai-grading-history";
 const gradingResultStorageKey = "ai-grading-current-result";
 const maxHistoryItems = 10;
 const incompleteCropHint = "请先完成题目图片和学生答案图片裁剪。";
@@ -72,7 +72,6 @@ export default function Home() {
   const [, setResult] = useState("");
   const [isGrading, setIsGrading] = useState(false);
   const [history, setHistory] = useState<GradeHistoryItem[]>([]);
-  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [studentName, setStudentName] = useState("匿名学生");
   const [studentId, setStudentId] = useState("");
   const [courseName, setCourseName] = useState("工程课程");
@@ -81,14 +80,10 @@ export default function Home() {
 
   useEffect(() => {
     let isActive = true;
-
-    queueMicrotask(() => {
-      if (!isActive) {
-        return;
-      }
-
-      setMounted(true);
-      setHistory(getStoredHistory());
+    void loadGradingHistory().then((items) => {
+      if (isActive) setHistory(items);
+    }).finally(() => {
+      if (isActive) setMounted(true);
     });
 
     return () => {
@@ -356,16 +351,9 @@ export default function Home() {
       const createdAt = new Date().toISOString();
       setStatus("批改完成");
       setResult(normalizedResult);
-      addHistoryItem({
-        id: safeRandomId("grading"),
-        createdAt,
+      const savedSubmission = await saveSubmission({
+        requestId: gradingRequestId,
         workflowRunId: latestWorkflowRunId,
-        problemFileName: questionUpload.fileName,
-        answerFileName: answerUpload.fileName,
-        resultPreview: createResultPreview(normalizedResult),
-        score: gradingScore === null ? undefined : `${gradingScore}/10`,
-      });
-      const submissionSaved = await saveSubmission({
         studentName,
         studentId,
         courseName,
@@ -376,7 +364,9 @@ export default function Home() {
         assignmentName: `${courseName.trim() || "工程课程"} AI拍照解析`,
       });
 
-      if (!submissionSaved) {
+      if (savedSubmission) {
+        addHistoryItem({ id: savedSubmission.id, requestId: gradingRequestId || null, title: `${courseName.trim() || "工程课程"} AI拍照解析`, courseName: courseName.trim() || "工程课程", createdAt, score: gradingScore, maxScore: 10, hasReport: true });
+      } else {
         setStatus("批改完成，但数据库记录保存失败");
       }
 
@@ -427,73 +417,12 @@ export default function Home() {
 
   function addHistoryItem(item: GradeHistoryItem) {
     setHistory((currentHistory) => {
-      const nextHistory = [item, ...currentHistory].slice(0, maxHistoryItems);
-
-      if (mounted) {
-        return saveHistorySafely(nextHistory);
-      }
-
-      return nextHistory;
+      return [item, ...currentHistory.filter((historyItem) => historyItem.id !== item.id)].slice(0, maxHistoryItems);
     });
   }
 
-  async function viewHistory(item: GradeHistoryItem) {
-    setIsHistoryDrawerOpen(false);
-    setResult("");
-    setStatus("正在加载完整历史报告...");
-
-    if (!item.workflowRunId) {
-      setResult("该历史记录仅保存了预览，无法恢复完整报告，请重新批改。");
-      setStatus("无法恢复完整历史报告");
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        withBasePath(`/api/grade/history?id=${encodeURIComponent(item.workflowRunId)}`),
-      );
-      const data = await response.json();
-
-      if (!response.ok || typeof data?.markdown !== "string") {
-        throw new Error("history unavailable");
-      }
-
-      const historyResult = normalizeReportMarkdown(data.markdown);
-      const historyScore = typeof data.score === "number" ? data.score : extractScore(historyResult);
-      const createdAt = new Date().toISOString();
-      setResult(historyResult);
-      setStatus("已加载历史批改详情");
-      saveGradingResult({
-        requestId: "",
-        markdown: historyResult,
-        createdAt,
-        workflowRunId: item.workflowRunId,
-        maxScore: 10,
-        questionImage: "",
-        questionFileName: item.problemFileName,
-        score: historyScore,
-        questionType: courseName.trim() || "工程课程",
-        difficulty: 3,
-        knowledgePoints: extractKnowledgePoints(historyResult),
-        errorLocation: extractReportField(historyResult, ["首个错误", "第一处错误", "错误位置"]) ?? "",
-        errorReason: extractReportField(historyResult, ["错误原因", "原因分析", "错误类型"]) ?? "",
-        improvement: extractReportField(historyResult, ["改进建议", "学习建议", "建议"]) ?? "",
-      });
-      router.push("/grading");
-    } catch {
-      setResult("历史记录详情暂时无法获取，请重新批改。");
-      setStatus("历史记录详情暂时无法获取");
-    }
-  }
-
-  function clearHistory() {
-    setHistory([]);
-
-    try {
-      window.localStorage.removeItem(historyStorageKey);
-    } catch {
-      // Ignore storage failures so the page remains usable.
-    }
+  function viewHistory(item: GradeHistoryItem) {
+    router.push(gradingHistoryPath(item.id));
   }
 
   return (
@@ -606,114 +535,13 @@ export default function Home() {
           </section>
 
           <section>
-            <div className="mb-3 flex items-center justify-between px-1"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">History</p><h2 className="mt-0.5 text-lg font-bold">最近解析</h2></div><button type="button" onClick={() => setIsHistoryDrawerOpen(true)} className="flex items-center text-xs font-medium text-slate-500">查看全部 <ChevronRight className="size-4" /></button></div>
+            <div className="mb-3 flex items-center justify-between px-1"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">History</p><h2 className="mt-0.5 text-lg font-bold">最近解析</h2></div><button type="button" onClick={() => router.push("/grading/history")} className="flex items-center text-xs font-medium text-slate-500">查看全部 <ChevronRight className="size-4" /></button></div>
             <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)] backdrop-blur-xl">
-              {mounted && history.length ? history.slice(0, 3).map((item, index) => <button type="button" key={item.id} onClick={() => viewHistory(item)} className={`flex w-full items-center gap-3 p-3 text-left ${index ? 'border-t border-slate-100' : ''}`}><div className="grid size-14 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-500"><FileText className="size-6" /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.problemFileName}</p><p className="mt-1 flex items-center gap-1 text-[10px] text-slate-400"><BookOpen className="size-3" /> {courseName || '工程课程'} <span className="mx-1">·</span><Clock3 className="size-3" /> {formatHistoryTime(item.createdAt)}</p></div><div className="text-right"><strong className="text-base text-blue-600">{item.score || '--'}</strong><p className="text-[9px] text-slate-400">得分</p></div></button>) : <div className="px-5 py-8 text-center"><div className="mx-auto grid size-11 place-items-center rounded-full bg-slate-100 text-slate-400"><FileText className="size-5" /></div><p className="mt-3 text-sm font-medium text-slate-600">还没有解析记录</p><p className="mt-1 text-[11px] text-slate-400">完成首次 AI 批改后会显示在这里</p></div>}
+              {mounted && history.length ? history.slice(0, 3).map((item, index) => <button type="button" key={item.id} onClick={() => viewHistory(item)} className={`flex w-full cursor-pointer items-center gap-3 p-3 text-left transition active:bg-blue-50 ${index ? 'border-t border-slate-100' : ''}`}><div className="grid size-14 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-500"><FileText className="size-6" /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.title}</p><p className="mt-1 flex items-center gap-1 text-[10px] text-slate-400"><BookOpen className="size-3" /> {item.courseName} <span className="mx-1">·</span><Clock3 className="size-3" /> {formatHistoryTime(item.createdAt)}</p></div><div className="text-right"><strong className="text-base text-blue-600">{formatScoreWithMaximum(item.score)}</strong><p className="text-[9px] text-slate-400">{item.hasReport ? "得分" : "无完整报告"}</p></div></button>) : <div className="px-5 py-8 text-center"><div className="mx-auto grid size-11 place-items-center rounded-full bg-slate-100 text-slate-400"><FileText className="size-5" /></div><p className="mt-3 text-sm font-medium text-slate-600">还没有解析记录</p><p className="mt-1 text-[11px] text-slate-400">完成首次 AI 批改后会显示在这里</p></div>}
             </div>
           </section>
         </div>
 
-      {isHistoryDrawerOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex justify-end bg-slate-950/35"
-          role="dialog"
-          aria-modal="true"
-          aria-label="历史记录"
-        >
-          <button
-            type="button"
-            aria-label="关闭历史记录"
-            className="absolute inset-0 cursor-default"
-            onClick={() => setIsHistoryDrawerOpen(false)}
-          />
-          <aside className="relative mx-auto flex h-full w-full max-w-[430px] flex-col bg-white shadow-2xl">
-            <div className="border-b border-[#D8DEE8] bg-[#F8FAFD] px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#0B4EA2]">
-                    History
-                  </p>
-                  <h3 className="mt-1 text-lg font-semibold text-[#0B2545]">
-                    历史记录
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    最近 {mounted ? history.length : 0} 条批改记录
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryDrawerOpen(false)}
-                  className="grid size-9 place-items-center border border-[#D8DEE8] bg-white text-lg leading-none text-slate-500 transition-colors hover:bg-[#F0F5FB] hover:text-[#0B4EA2]"
-                  aria-label="关闭历史记录"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {mounted && history.length > 0 ? (
-                <div className="space-y-3">
-                  {history.slice(0, maxHistoryItems).map((item) => (
-                    <article
-                      key={item.id}
-                      className="border border-[#D8DEE8] bg-[#F8FAFD] p-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-slate-500">
-                            {formatHistoryTime(item.createdAt)}
-                          </p>
-                          <p className="mt-2 truncate text-xs font-semibold text-[#0B2545]">
-                            题目：{item.problemFileName}
-                          </p>
-                          <p className="mt-1 truncate text-xs text-slate-600">
-                            答案：{item.answerFileName}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => viewHistory(item)}
-                          className="shrink-0 border border-[#0B4EA2] bg-white px-3 py-1 text-xs font-semibold text-[#0B4EA2] transition-colors hover:bg-[#F0F5FB]"
-                        >
-                          查看
-                        </button>
-                      </div>
-
-                      {item.score ? (
-                        <p className="mt-2 text-xs font-semibold text-emerald-700">
-                          评分/得分：{item.score}
-                        </p>
-                      ) : null}
-
-                      <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">
-                        {item.resultPreview}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex h-full items-center justify-center text-center">
-                  <p className="max-w-52 text-sm leading-6 text-slate-500">
-                    批改完成后会自动保存轻量历史记录。
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-[#D8DEE8] bg-[#F8FAFD] p-4">
-              <button
-                type="button"
-                onClick={clearHistory}
-                disabled={!mounted || history.length === 0}
-                className="h-10 w-full border border-[#D8DEE8] bg-white text-sm font-semibold text-[#0B4EA2] transition-colors hover:bg-[#F0F5FB] disabled:cursor-not-allowed disabled:text-slate-400"
-              >
-                清空历史记录
-              </button>
-            </div>
-          </aside>
-        </div>
-      ) : null}
     </MobileShell>
   );
 }
@@ -914,10 +742,6 @@ function extractWorkflowRunId(payload: unknown) {
   return typeof id === "string" ? id : "";
 }
 
-function createResultPreview(value: string) {
-  return value.replace(/\s+/g, " ").trim().slice(0, 300);
-}
-
 function extractKnowledgePoints(value: string) {
   const knowledgeText = extractReportField(value, [
     "知识点",
@@ -964,6 +788,8 @@ function saveGradingResult(payload: {
 }
 
 async function saveSubmission(input: {
+  requestId: string;
+  workflowRunId: string;
   studentName: string;
   studentId: string;
   courseName: string;
@@ -1015,9 +841,13 @@ async function saveSubmission(input: {
       body: JSON.stringify(payload),
     });
 
-    return response.ok;
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    return isRecord(data) && isRecord(data.submission) && typeof data.submission.id === "string"
+      ? { id: data.submission.id }
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -1048,25 +878,6 @@ function extractReportField(report: string, labels: string[]) {
   }
 
   return null;
-}
-
-function saveHistorySafely(history: GradeHistoryItem[]) {
-  let nextHistory = history.slice(0, maxHistoryItems);
-
-  while (nextHistory.length >= 0) {
-    try {
-      window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
-      return nextHistory;
-    } catch {
-      if (nextHistory.length === 0) {
-        return [];
-      }
-
-      nextHistory = nextHistory.slice(0, -1);
-    }
-  }
-
-  return [];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1188,41 +999,18 @@ function formatHistoryTime(value: string) {
   }).format(new Date(value));
 }
 
-function getStoredHistory() {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const storedHistory = window.localStorage.getItem(historyStorageKey);
-
-  if (!storedHistory) {
-    return [];
-  }
-
+async function loadGradingHistory(): Promise<GradeHistoryItem[]> {
   try {
-    const parsedHistory = JSON.parse(storedHistory);
-    return Array.isArray(parsedHistory)
-      ? parsedHistory.filter(isGradeHistoryItem).slice(0, maxHistoryItems)
-      : [];
+    const response = await fetch(withBasePath("/api/grade/history"), { cache: "no-store" });
+    const data: unknown = await response.json();
+    if (!response.ok || !isRecord(data) || !Array.isArray(data.history)) return [];
+    return data.history.filter(isGradeHistoryItem).slice(0, maxHistoryItems);
   } catch {
     return [];
   }
 }
 
 function isGradeHistoryItem(value: unknown): value is GradeHistoryItem {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const item = value as Partial<GradeHistoryItem>;
-
-  return (
-    typeof item.id === "string" &&
-    typeof item.createdAt === "string" &&
-    typeof item.problemFileName === "string" &&
-    typeof item.answerFileName === "string" &&
-    typeof item.resultPreview === "string" &&
-    (item.workflowRunId === undefined || typeof item.workflowRunId === "string") &&
-    (item.score === undefined || typeof item.score === "string")
-  );
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && (value.requestId === null || typeof value.requestId === "string") && typeof value.title === "string" && typeof value.courseName === "string" && (value.score === null || typeof value.score === "number") && value.maxScore === 10 && typeof value.createdAt === "string" && typeof value.hasReport === "boolean";
 }

@@ -21,6 +21,7 @@ import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
 import { withBasePath } from "@/lib/base-path";
 import { formatScoreWithMaximum, parseScore, scoreProgress } from "@/lib/score-scale";
+import { gradingHistoryPath } from "@/lib/grading-history";
 
 type HistoryItem = {
   id: string;
@@ -49,7 +50,6 @@ type Course = {
   icon: typeof Atom;
 };
 
-const gradingResultStorageKey = "ai-grading-current-result";
 const courses: Course[] = [
   { name: "理论力学", description: "静力学 · 运动学 · 动力学", keywords: ["理论力学", "静力学", "运动学", "动力学", "力矩"], icon: Atom },
   { name: "材料力学", description: "应力 · 变形 · 强度", keywords: ["材料力学", "应力", "应变", "梁", "弯曲"], icon: Layers3 },
@@ -97,23 +97,7 @@ export default function PracticePage() {
   const averageScore = useMemo(() => scoredHistory.length ? scoredHistory.reduce((sum, item) => sum + (parseScore(item.score) ?? 0), 0) / scoredHistory.length : null, [scoredHistory]);
 
   function viewSubmission(item: HistoryItem) {
-    window.sessionStorage.setItem(gradingResultStorageKey, JSON.stringify({
-      requestId: item.id,
-      markdown: item.gradingResult,
-      createdAt: item.createdAt,
-      workflowRunId: "",
-      maxScore: 10,
-      questionImage: "",
-      questionFileName: item.problemFileName,
-      score: parseScore(item.score),
-      questionType: item.courseName,
-      difficulty: 3,
-      knowledgePoints: item.knowledgePoint ? [item.knowledgePoint] : [],
-      errorLocation: "",
-      errorReason: "",
-      improvement: "",
-    }));
-    router.push("/grading");
+    router.push(gradingHistoryPath(item.id));
   }
 
   async function generatePractice() {
