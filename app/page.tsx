@@ -26,6 +26,7 @@ import {
   extractScore,
   selectGradingReportFromPayload,
 } from "@/lib/grading-report";
+import { formatScoreWithMaximum, scoreProgress } from "@/lib/score-scale";
 
 type UploadKind = "question" | "answer";
 type UploadValue = {
@@ -167,6 +168,7 @@ export default function Home() {
   const progressPercent = Math.round(
     (completedStepCount / workflowSteps.length) * 100,
   );
+  const averageScoreProgress = scoreProgress(learningStats.averageScore);
 
   const isReadyToGrade = Boolean(
     questionUpload?.file && answerUpload?.file && !questionDraft && !answerDraft,
@@ -619,16 +621,17 @@ export default function Home() {
               <span className="rounded-full border border-white/80 bg-slate-100/75 px-2.5 py-1 text-[10px] text-slate-600">持续进步中</span>
             </div>
             <div className="mt-5 grid grid-cols-[96px_1fr] items-center gap-4">
-              <div className="relative grid size-24 place-items-center rounded-full p-[7px] shadow-[0_8px_22px_rgba(71,85,105,.14)]" style={{ background: `conic-gradient(#6688a8 0 ${Math.round(learningStats.averageScore ?? 0)}%, rgba(148,163,184,.24) ${Math.round(learningStats.averageScore ?? 0)}%)` }}>
+              <div className="relative grid size-24 place-items-center rounded-full p-[7px] shadow-[0_8px_22px_rgba(71,85,105,.14)]" style={{ background: `conic-gradient(#6688a8 0 ${Math.round(averageScoreProgress * 100)}%, rgba(148,163,184,.24) ${Math.round(averageScoreProgress * 100)}%)` }}>
                 <div className="grid size-full place-items-center rounded-full bg-white/90 text-center shadow-inner">
-                  <div><strong className="text-2xl">{learningStats.averageScore === null ? "--" : `${Math.round(learningStats.averageScore)}%`}</strong><p className="text-[9px] text-slate-500">平均成绩</p></div>
+                  <div><strong className="text-lg">{formatScoreWithMaximum(learningStats.averageScore)}</strong><p className="text-[9px] text-slate-500">平均成绩</p><p className="mt-0.5 text-[8px] text-slate-400">满分 10 分</p></div>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                {[[String(learningStats.completedGradings),'批改次数'],[String(learningStats.aiLearningCount),'AI学习'],[learningStats.recentScores[0] ? String(Math.round(learningStats.recentScores[0].score)) : '--','最近成绩']].map(([value,label]) => (
+                {[[String(learningStats.completedGradings),'批改次数'],[String(learningStats.aiLearningCount),'AI学习'],[formatScoreWithMaximum(learningStats.recentScores[0]?.score),'最近成绩']].map(([value,label]) => (
                   <div key={label} className="border-l border-slate-300/70 first:border-0">
                     <strong className="text-base">{value}</strong>
                     <p className="mt-1 text-[9px] text-slate-500">{label}</p>
+                    {label === "最近成绩" ? <p className="mt-0.5 text-[8px] text-slate-400">满分 10 分</p> : null}
                   </div>
                 ))}
               </div>
@@ -636,11 +639,11 @@ export default function Home() {
           </section>
 
           <section>
-            <div className="mb-3 px-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">Recent scores</p><h2 className="mt-0.5 text-lg font-bold">最近成绩</h2></div>
+            <div className="mb-3 px-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">Recent scores</p><h2 className="mt-0.5 text-lg font-bold">最近成绩 <span className="text-xs font-normal text-slate-400">（满分10分）</span></h2></div>
             <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)]">
               {learningStats.recentScores.length ? learningStats.recentScores.map((item, index) => (
                 <div key={item.id} className={`flex min-w-0 items-center gap-3 p-3 ${index ? "border-t border-slate-100" : ""}`}>
-                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-sm font-bold text-blue-600">{Math.round(item.score)}</span>
+                  <span className="grid min-w-14 shrink-0 place-items-center rounded-xl bg-blue-50 px-2 py-3 text-xs font-bold text-blue-600">{formatScoreWithMaximum(item.score)}</span>
                   <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.courseName}</p><p className="mt-1 text-[10px] text-slate-400">{formatRecentDate(item.createdAt)} · AI 批改已完成</p></div>
                   <span className="shrink-0 text-xs font-medium text-emerald-600">已归档</span>
                 </div>
@@ -650,7 +653,7 @@ export default function Home() {
 
           <section>
             <div className="mb-3 px-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-blue-600">Recent errors</p><h2 className="mt-0.5 text-lg font-bold">最近错题</h2></div>
-            <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)]">{learningStats.recentErrors.length ? learningStats.recentErrors.map((item, index) => <div key={item.id} className={`flex items-center gap-3 p-3 ${index ? "border-t border-slate-100" : ""}`}><span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><BookOpen className="size-5" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.knowledgePoint || item.courseName}</p><p className="mt-1 text-[10px] text-slate-400">{item.courseName} · {item.errorType || "待复盘"}</p></div><strong className="text-sm text-blue-600">{item.score === null ? "--" : Math.round(item.score)}</strong></div>) : <div className="px-5 py-7 text-center text-xs text-slate-400">暂无错题记录，继续保持。</div>}</div>
+            <div className="overflow-hidden rounded-[22px] border border-white/80 bg-white/78 shadow-[0_8px_24px_rgba(30,41,59,.09)]">{learningStats.recentErrors.length ? learningStats.recentErrors.map((item, index) => <div key={item.id} className={`flex items-center gap-3 p-3 ${index ? "border-t border-slate-100" : ""}`}><span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><BookOpen className="size-5" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.knowledgePoint || item.courseName}</p><p className="mt-1 text-[10px] text-slate-400">{item.courseName} · {item.errorType || "待复盘"}</p></div><strong className="text-sm text-blue-600">{formatScoreWithMaximum(item.score)}</strong></div>) : <div className="px-5 py-7 text-center text-xs text-slate-400">暂无错题记录，继续保持。</div>}</div>
           </section>
 
           <section className="rounded-[24px] border border-white/55 bg-[#dfe4e8]/72 p-3 shadow-[0_10px_28px_rgba(51,65,85,.11)] backdrop-blur-xl">

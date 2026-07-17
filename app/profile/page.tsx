@@ -20,6 +20,7 @@ import {
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
 import { withBasePath } from "@/lib/base-path";
+import { formatScoreWithMaximum, parseScore } from "@/lib/score-scale";
 
 type HistoryItem = {
   id: string;
@@ -86,7 +87,7 @@ export default function ProfilePage() {
           <div className="grid grid-cols-2 gap-3">
             <StatCard icon={<FileSearch className="size-5" />} label="累计解析题目" value={loaded ? String(profile.uniqueProblems) : "--"} suffix="题" />
             <StatCard icon={<BookOpenCheck className="size-5" />} label="完成作业" value={loaded ? String(profile.completedRecords) : "--"} suffix="次" />
-            <StatCard icon={<TrendingUp className="size-5" />} label="平均得分" value={loaded && profile.averageScore !== null ? String(profile.averageScore) : "--"} suffix={profile.averageScore !== null ? "分" : ""} />
+            <StatCard icon={<TrendingUp className="size-5" />} label="平均得分（满分10分）" value={loaded ? formatScoreWithMaximum(profile.averageScore) : "--"} suffix="" />
             <StatCard icon={<Target className="size-5" />} label="正确率" value={loaded && profile.accuracy !== null ? String(profile.accuracy) : "--"} suffix={profile.accuracy !== null ? "%" : ""} />
           </div>
         </section>
@@ -110,7 +111,7 @@ export default function ProfilePage() {
         <section>
           <SectionTitle eyebrow="Recent activity" title="最近学习记录" />
           <div className="overflow-hidden rounded-[24px] border border-white/80 bg-white/80 shadow-[0_8px_24px_rgba(30,41,59,.07)] backdrop-blur-md">
-            {loaded && history.length ? history.slice(0, 5).map((item, index) => <div key={item.id} className={`flex items-center gap-3 px-4 py-3.5 ${index ? "border-t border-slate-100" : ""}`}><span className="grid size-10 shrink-0 place-items-center rounded-[14px] bg-blue-50 text-blue-600"><BookOpenCheck className="size-[18px]" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">完成 {item.problemFileName} 解析</p><p className="mt-1 text-[10px] text-slate-400">{formatRelativeDay(item.createdAt, referenceTime)} · {formatTime(item.createdAt)}</p></div>{item.score ? <span className="text-xs font-semibold text-blue-600">{item.score}</span> : null}</div>) : loaded ? <div className="px-6 py-10 text-center"><BookOpenCheck className="mx-auto size-7 text-slate-300" /><p className="mt-3 text-sm font-medium text-slate-500">暂无学习记录</p><p className="mt-1 text-[11px] text-slate-400">完成首次 AI 解析后会显示在这里。</p></div> : <div className="h-32 animate-pulse bg-white/50" />}
+            {loaded && history.length ? history.slice(0, 5).map((item, index) => <div key={item.id} className={`flex items-center gap-3 px-4 py-3.5 ${index ? "border-t border-slate-100" : ""}`}><span className="grid size-10 shrink-0 place-items-center rounded-[14px] bg-blue-50 text-blue-600"><BookOpenCheck className="size-[18px]" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">完成 {item.problemFileName} 解析</p><p className="mt-1 text-[10px] text-slate-400">{formatRelativeDay(item.createdAt, referenceTime)} · {formatTime(item.createdAt)}</p></div>{item.score ? <span className="text-xs font-semibold text-blue-600">{formatScoreWithMaximum(parseScore(item.score))}</span> : null}</div>) : loaded ? <div className="px-6 py-10 text-center"><BookOpenCheck className="mx-auto size-7 text-slate-300" /><p className="mt-3 text-sm font-medium text-slate-500">暂无学习记录</p><p className="mt-1 text-[11px] text-slate-400">完成首次 AI 解析后会显示在这里。</p></div> : <div className="h-32 animate-pulse bg-white/50" />}
           </div>
         </section>
 
@@ -153,10 +154,10 @@ function SettingsDialog({ active, notificationsEnabled, onNotificationsChange, o
 
 function createLearningProfile(history: HistoryItem[]) {
   const scored = history.map((item) => ({ item, score: parseScore(item.score) })).filter((entry): entry is { item: HistoryItem; score: number } => entry.score !== null);
-  const averageScore = scored.length ? Math.round(scored.reduce((sum, entry) => sum + entry.score, 0) / scored.length) : null;
-  const accuracy = scored.length ? Math.round((scored.filter((entry) => entry.score >= 60).length / scored.length) * 100) : null;
-  const strongPoints = scored.filter((entry) => entry.score >= 80).flatMap((entry) => extractKnowledgePoints(entry.item.resultPreview));
-  const weakPoints = scored.filter((entry) => entry.score < 60).flatMap((entry) => extractKnowledgePoints(entry.item.resultPreview));
+  const averageScore = scored.length ? scored.reduce((sum, entry) => sum + entry.score, 0) / scored.length : null;
+  const accuracy = scored.length ? Math.round((scored.filter((entry) => entry.score >= 6).length / scored.length) * 100) : null;
+  const strongPoints = scored.filter((entry) => entry.score >= 8).flatMap((entry) => extractKnowledgePoints(entry.item.resultPreview));
+  const weakPoints = scored.filter((entry) => entry.score < 6).flatMap((entry) => extractKnowledgePoints(entry.item.resultPreview));
   const strength = mostFrequent(strongPoints);
   const weakness = mostFrequent(weakPoints);
 
@@ -170,14 +171,6 @@ function createLearningProfile(history: HistoryItem[]) {
     suggestion: weakness ? `建议加强“${weakness}”相关章节训练，并结合错题逐步复盘。` : "继续积累解析记录，保持分步骤检查与复盘习惯。",
     hasAnalysis: scored.length > 0,
   };
-}
-
-function parseScore(score?: string) {
-  if (!score) return null;
-  const values = score.match(/\d+(?:\.\d+)?/g)?.map(Number) ?? [];
-  if (!Number.isFinite(values[0])) return null;
-  if (Number.isFinite(values[1]) && values[1] > 0) return Math.round((values[0] / values[1]) * 100);
-  return Math.min(100, values[0]);
 }
 
 function extractKnowledgePoints(text: string) {

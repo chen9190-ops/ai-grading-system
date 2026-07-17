@@ -74,9 +74,9 @@ async function main() {
       const sequence = studentIndex * 3 + attempt;
       const submissionId = `seed-submission-${String(sequence).padStart(3, "0")}`;
       const courseName = courseNames[(studentIndex + attempt - 1) % courseNames.length];
-      const score = 52 + ((studentIndex * 11 + attempt * 7) % 49);
+      const score = Math.round((5.2 + ((studentIndex * 11 + attempt * 7) % 49) / 10) * 10) / 10;
       const knowledgePoint = knowledgePoints[(studentIndex + attempt) % knowledgePoints.length];
-      const errorType = score >= 90 ? "无明显错误" : errorTypes[(studentIndex + attempt) % errorTypes.length];
+      const errorType = score >= 9 ? "无明显错误" : errorTypes[(studentIndex + attempt) % errorTypes.length];
       const createdAt = demoDate((sequence - 1) % 21, (studentIndex + attempt) % 12 + 8);
       const data = {
         userId: student.id,
@@ -89,13 +89,13 @@ async function main() {
         answerImageName: `seed/${courseName}/answer-${sequence}.png`,
         problemImages: [`seed/${courseName}/problem-${sequence}.png`],
         answerImages: [`seed/${courseName}/answer-${sequence}.png`],
-        gradingResult: `AI 批改：${knowledgePoint}，得分 ${score}。${score >= 90 ? "解题规范，步骤完整。" : `主要问题为${errorType}。`}`,
+        gradingResult: `AI 批改：${knowledgePoint}，得分 ${score} / 10。${score >= 9 ? "解题规范，步骤完整。" : `主要问题为${errorType}。`}`,
         aiResult: { summary: "高校教学演示批改结果", knowledgePoint, errorType, score },
         score,
-        firstError: score >= 90 ? null : `在${knowledgePoint}相关步骤出现${errorType}`,
+        firstError: score >= 9 ? null : `在${knowledgePoint}相关步骤出现${errorType}`,
         errorType,
         knowledgePoint,
-        feedback: score >= 90 ? "掌握良好，建议挑战综合题" : `建议复习${knowledgePoint}并完成针对性训练`,
+        feedback: score >= 9 ? "掌握良好，建议挑战综合题" : `建议复习${knowledgePoint}并完成针对性训练`,
         createdAt,
       };
       await prisma.submission.upsert({
@@ -147,7 +147,7 @@ async function main() {
       const data = {
         teacherId: teacher.id,
         courseName,
-        inputData: { studentCount: 25, submissionCount: 75, averageScore: 78 + (teacherIndex % 6) },
+        inputData: { studentCount: 25, submissionCount: 75, averageScore: 7.8 + (teacherIndex % 6) / 10 },
         report: { classSummary: `${courseName}整体掌握稳定`, mainIssues: errorTypes.slice(0, 2), weakKnowledgePoints: knowledgePoints.slice(reportIndex, reportIndex + 2), teachingSuggestions: "加强分层练习与错题复盘", nextStagePlan: "开展章节综合训练" },
         createdAt: demoDate((teacherIndex + reportIndex * 2) % 14, 14),
       };

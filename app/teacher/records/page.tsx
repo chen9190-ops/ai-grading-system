@@ -24,7 +24,7 @@ export default async function RecordsPage() {
                   <p>{record.courseName}</p>
                   <p className="mt-1 text-xs text-slate-500">{formatDate(record.createdAt)}</p>
                 </div>
-                <p className="text-xl font-semibold text-[#0B4EA2]">{formatScore(record.score)} 分</p>
+                <p className="text-xl font-semibold text-[#0B4EA2]">{formatScore(record.score)} / 10</p>
                 <span className="text-xl text-slate-400 transition group-open:rotate-45">+</span>
               </summary>
               <div className="border-t border-[#D8DEE8] bg-[#F8FAFD] p-5">

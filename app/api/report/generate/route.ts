@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { callDifyWorkflow, DifyChatflowError } from "@/lib/dify";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
+import { MAX_SCORE } from "@/lib/score-scale";
 
 export const runtime = "nodejs";
 
@@ -43,7 +44,7 @@ async function readInput(request: Request) {
   try {
     const value: unknown = await request.json();
     if (!isRecord(value) || typeof value.course !== "string" || !value.course.trim() || value.course.length > 100 || !Array.isArray(value.students) || value.students.length > 1000 || !Array.isArray(value.scores) || value.scores.length > 10_000 || !Array.isArray(value.assignments) || value.assignments.length > 10_000) return null;
-    if (!value.students.every(isRecord) || !value.assignments.every(isRecord) || !value.scores.every((score) => typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 100)) return null;
+    if (!value.students.every(isRecord) || !value.assignments.every(isRecord) || !value.scores.every((score) => typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= MAX_SCORE)) return null;
     return { course: value.course.trim(), students: value.students, scores: value.scores, assignments: value.assignments };
   } catch { return null; }
 }

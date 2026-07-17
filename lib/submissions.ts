@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { MAX_SCORE } from "@/lib/score-scale";
 
 export const noErrorLabel = "无明显错误";
 
@@ -59,7 +60,7 @@ export async function getDashboardData() {
     const key = row.userId ?? row.studentId ?? `name:${row.studentName}`;
     scoreGroups.set(key, [...(scoreGroups.get(key) ?? []), row.score]);
   }
-  const attentionStudents = [...scoreGroups.values()].filter((scores) => scores.reduce((sum, score) => sum + score, 0) / scores.length < 60).length;
+  const attentionStudents = [...scoreGroups.values()].filter((scores) => scores.reduce((sum, score) => sum + score, 0) / scores.length < MAX_SCORE * 0.6).length;
   const recentActivities = [
     ...recentRecords.map((record) => ({
       id: `submission:${record.id}`,

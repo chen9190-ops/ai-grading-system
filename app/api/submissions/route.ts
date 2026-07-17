@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
+import { MAX_SCORE } from "@/lib/score-scale";
 
 export const runtime = "nodejs";
 
@@ -29,8 +30,8 @@ export async function POST(request: Request) {
     }
 
     const score = asNumber(body.score);
-    if (score !== null && (score < 0 || score > 100)) {
-      return Response.json({ error: "score 必须在 0 到 100 之间" }, { status: 400 });
+    if (score !== null && (score < 0 || score > MAX_SCORE)) {
+      return Response.json({ error: `score 必须在 0 到 ${MAX_SCORE} 之间` }, { status: 400 });
     }
 
     const sessionUser = await prisma.user.findUnique({ where: { id: session.id }, select: { id: true, name: true, studentProfile: { select: { studentId: true, className: true } } } });

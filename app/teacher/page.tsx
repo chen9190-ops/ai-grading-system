@@ -10,7 +10,7 @@ export default async function TeacherDashboard() {
   const cards = [
     { label: "学生数量", value: data.totalStudents, unit: "人" },
     { label: "今日提交", value: data.todaySubmissions, unit: "次" },
-    { label: "平均成绩", value: formatScore(data.averageScore), unit: "分" },
+    { label: "平均成绩", value: formatScore(data.averageScore), unit: " / 10" },
     { label: "AI 辅导次数", value: data.aiGuidanceCount, unit: "次" },
   ];
 

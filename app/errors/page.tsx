@@ -5,6 +5,7 @@ import Link from "next/link";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
 import { withBasePath } from "@/lib/base-path";
+import { MAX_SCORE, parseScore } from "@/lib/score-scale";
 import {
   AlertCircle,
   BookOpen,
@@ -205,11 +206,8 @@ function isHistoryItem(value: unknown): value is HistoryItem {
 }
 
 function isWrongAnswer(item: HistoryItem) {
-  if (!item.score) return false;
-  const values = item.score.match(/\d+(?:\.\d+)?/g)?.map(Number) ?? [];
-  if (!Number.isFinite(values[0])) return false;
-  if (Number.isFinite(values[1]) && values[1] > 0) return values[0] < values[1];
-  return values[0] < 100;
+  const score = parseScore(item.score);
+  return score !== null && score < MAX_SCORE;
 }
 
 function extractField(text: string, labels: string[]) {

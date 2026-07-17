@@ -18,6 +18,7 @@ import {
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
 import { withBasePath } from "@/lib/base-path";
+import { formatScoreWithMaximum, parseScore, scoreProgress } from "@/lib/score-scale";
 
 type HistoryItem = {
   id: string;
@@ -110,7 +111,7 @@ export default function PracticePage() {
           <div className="space-y-3">
             {mastery.map(({ course, score, recordCount }) => {
               const Icon = course.icon;
-              return <article key={course.name} className="rounded-[24px] border border-white/80 bg-white/80 p-4 shadow-[0_8px_24px_rgba(30,41,59,.07)] backdrop-blur-md"><div className="flex items-center gap-3"><span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Icon className="size-6" strokeWidth={1.7} /></span><div className="min-w-0 flex-1"><h3 className="text-sm font-bold">{course.name}</h3><p className="mt-1 text-[10px] text-slate-400">{course.description}</p></div><div className="text-right"><p className="text-[9px] text-slate-400">掌握程度</p><p className={`mt-1 text-sm font-bold ${score === null ? "text-slate-400" : "text-blue-600"}`}>{loaded ? score === null ? "暂无数据" : `${score}%` : "--"}</p></div></div>{score !== null ? <div className="mt-4"><div className="flex justify-between text-[9px] text-slate-400"><span>基于 {recordCount} 条相关解析</span><span>{getMasteryLabel(score)}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${score}%` }} /></div></div> : <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-[10px] text-slate-400">完成相关课程的 AI 批改后，将自动生成掌握度。</p>}<button type="button" onClick={() => { setPrompt(`生成${course.name}专项训练`); setNotice(""); }} className="mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-[14px] bg-blue-50 text-xs font-semibold text-blue-600 transition active:scale-[.98] active:bg-blue-100"><Dumbbell className="size-4" />开始训练<ArrowRight className="size-3.5" /></button></article>;
+              return <article key={course.name} className="rounded-[24px] border border-white/80 bg-white/80 p-4 shadow-[0_8px_24px_rgba(30,41,59,.07)] backdrop-blur-md"><div className="flex items-center gap-3"><span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Icon className="size-6" strokeWidth={1.7} /></span><div className="min-w-0 flex-1"><h3 className="text-sm font-bold">{course.name}</h3><p className="mt-1 text-[10px] text-slate-400">{course.description}</p></div><div className="text-right"><p className="text-[9px] text-slate-400">掌握程度</p><p className={`mt-1 text-sm font-bold ${score === null ? "text-slate-400" : "text-blue-600"}`}>{loaded ? score === null ? "暂无数据" : formatScoreWithMaximum(score) : "--"}</p></div></div>{score !== null ? <div className="mt-4"><div className="flex justify-between text-[9px] text-slate-400"><span>基于 {recordCount} 条相关解析</span><span>{getMasteryLabel(score)}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${scoreProgress(score) * 100}%` }} /></div></div> : <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-[10px] text-slate-400">完成相关课程的 AI 批改后，将自动生成掌握度。</p>}<button type="button" onClick={() => { setPrompt(`生成${course.name}专项训练`); setNotice(""); }} className="mt-4 flex h-10 w-full items-center justify-center gap-1.5 rounded-[14px] bg-blue-50 text-xs font-semibold text-blue-600 transition active:scale-[.98] active:bg-blue-100"><Dumbbell className="size-4" />开始训练<ArrowRight className="size-3.5" /></button></article>;
             })}
           </div>
         </section>
@@ -148,21 +149,13 @@ function calculateCourseMastery(course: Course, history: HistoryItem[]) {
 
   return {
     recordCount: relatedScores.length,
-    score: relatedScores.length ? Math.round(relatedScores.reduce((sum, score) => sum + score, 0) / relatedScores.length) : null,
+    score: relatedScores.length ? relatedScores.reduce((sum, score) => sum + score, 0) / relatedScores.length : null,
   };
 }
 
-function parseScore(score?: string) {
-  if (!score) return null;
-  const values = score.match(/\d+(?:\.\d+)?/g)?.map(Number) ?? [];
-  if (!Number.isFinite(values[0])) return null;
-  if (Number.isFinite(values[1]) && values[1] > 0) return Math.round((values[0] / values[1]) * 100);
-  return Math.min(100, values[0]);
-}
-
 function getMasteryLabel(score: number) {
-  if (score >= 85) return "掌握良好";
-  if (score >= 60) return "持续巩固";
+  if (score >= 8.5) return "掌握良好";
+  if (score >= 6) return "持续巩固";
   return "建议强化";
 }
 
