@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, BookOpen, ChevronRight, FileWarning } from "lucide-react";
+import { AlertCircle, BookOpen, ChevronRight, FileWarning, Trash2 } from "lucide-react";
 import MobileShell from "../components/mobile/MobileShell";
 import MobileTopBar from "../components/mobile/MobileTopBar";
 import { withBasePath } from "@/lib/base-path";
 import { formatScoreWithMaximum } from "@/lib/score-scale";
 import { gradingHistoryPath } from "@/lib/grading-history";
+import { gradingDeleteApiPath, removeGradingRecord } from "@/lib/grading-deletion";
 
 type Submission = {
   id: string;
@@ -27,6 +28,7 @@ export default function ErrorsPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -48,6 +50,22 @@ export default function ErrorsPage() {
     router.push(gradingHistoryPath(item.id));
   }
 
+  async function deleteSubmission(item: Submission) {
+    if (deletingId || !window.confirm("确定删除这条批改记录吗？删除后无法恢复。")) return;
+    setDeletingId(item.id);
+    setError("");
+    try {
+      const response = await fetch(withBasePath(gradingDeleteApiPath(item.id)), { method: "DELETE" });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(isRecord(payload) && typeof payload.error === "string" ? payload.error : "删除失败，请稍后重试");
+      setSubmissions((items) => removeGradingRecord(items, item.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "删除失败，请稍后重试");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <MobileShell>
       <MobileTopBar title="错题本" showBack={false} rightAction={<span className="grid size-10 place-items-center rounded-full bg-amber-50 text-amber-600"><BookOpen className="size-5" /></span>} />
@@ -61,7 +79,7 @@ export default function ErrorsPage() {
         <section className="mt-6">
           <div className="mb-3 px-1"><p className="text-[9px] font-semibold uppercase tracking-[.18em] text-blue-600">Recent errors</p><h2 className="mt-0.5 text-lg font-bold">错题列表</h2></div>
           {error ? <div className="rounded-[20px] border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-          {!loaded ? <div className="h-32 animate-pulse rounded-[22px] bg-white/60" /> : errors.length ? <div className="space-y-3">{errors.map((item) => <button type="button" key={item.id} onClick={() => viewSubmission(item)} className="flex w-full items-center gap-3 rounded-[22px] border border-white/80 bg-white/82 p-4 text-left shadow-[0_8px_24px_rgba(30,41,59,.08)]"><span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-amber-50 text-amber-600"><AlertCircle className="size-5" /></span><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{item.knowledgePoint || item.assignmentName || item.problemImageName}</strong><span className="mt-1 block truncate text-[10px] text-slate-500">{item.courseName} · {item.errorType || "错误类型待复盘"}</span><span className="mt-1 block text-[9px] text-slate-400">{formatDate(item.createdAt)}</span></span><span className="shrink-0 text-right"><strong className="block text-sm text-blue-600">{formatScoreWithMaximum(item.score)}</strong><ChevronRight className="ml-auto mt-1 size-4 text-slate-300" /></span></button>)}</div> : !error ? <div className="rounded-[22px] border border-white/80 bg-white/82 px-6 py-12 text-center shadow-[0_8px_24px_rgba(30,41,59,.07)]"><FileWarning className="mx-auto size-8 text-slate-300" /><p className="mt-3 text-sm font-medium text-slate-600">暂无错题记录</p><p className="mt-1 text-xs leading-5 text-slate-400">完成 AI 批改并识别到错误后，记录会显示在这里。</p></div> : null}
+          {!loaded ? <div className="h-32 animate-pulse rounded-[22px] bg-white/60" /> : errors.length ? <div className="space-y-3">{errors.map((item) => <article key={item.id} className="flex items-center gap-2 rounded-[22px] border border-white/80 bg-white/82 p-2 shadow-[0_8px_24px_rgba(30,41,59,.08)]"><button type="button" onClick={() => viewSubmission(item)} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl p-2 text-left transition active:bg-amber-50"><span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-amber-50 text-amber-600"><AlertCircle className="size-5" /></span><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{item.knowledgePoint || item.assignmentName || item.problemImageName}</strong><span className="mt-1 block truncate text-[10px] text-slate-500">{item.courseName} · {item.errorType || "错误类型待复盘"}</span><span className="mt-1 block text-[9px] text-slate-400">{formatDate(item.createdAt)}</span></span><span className="shrink-0 text-right"><strong className="block text-sm text-blue-600">{formatScoreWithMaximum(item.score)}</strong><ChevronRight className="ml-auto mt-1 size-4 text-slate-300" /></span></button><button type="button" aria-label="删除批改记录" onClick={() => void deleteSubmission(item)} disabled={deletingId !== null} className="grid size-10 shrink-0 place-items-center rounded-xl text-slate-400 transition active:bg-red-50 active:text-red-600 disabled:opacity-40"><Trash2 className="size-4" /></button></article>)}</div> : !error ? <div className="rounded-[22px] border border-white/80 bg-white/82 px-6 py-12 text-center shadow-[0_8px_24px_rgba(30,41,59,.07)]"><FileWarning className="mx-auto size-8 text-slate-300" /><p className="mt-3 text-sm font-medium text-slate-600">暂无错题记录</p><p className="mt-1 text-xs leading-5 text-slate-400">完成 AI 批改并识别到错误后，记录会显示在这里。</p></div> : null}
         </section>
       </div>
     </MobileShell>
